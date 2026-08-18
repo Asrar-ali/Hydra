@@ -1,15 +1,21 @@
-"""The adversarial loop — the heart of Hydra. See ARCHITECTURE.md §5, §10, §11.
+"""The adversarial loop — the heart of Hydra. See ARCHITECTURE.md §5, §9.3, §10, §11.
 
-Baseline both detectors on the seed, then:
-  Track 1 — evade the signature (YARA), behavior preserved. Expected: succeeds.
-  Track 2 — evade the behavior (Falco), behavior preserved. Expected: fails.
-  Finale  — ungated: evade the behavioral rule only by breaking behavior.
+Two payload modes (ARCHITECTURE.md §9.3):
+
+  mode="metamorphic" (default) — baseline both detectors on the seed, then:
+    Track 1 — evade the signature (YARA), behavior preserved. Expected: succeeds.
+    Track 2 — evade the behavior (Falco), behavior preserved. Expected: fails.
+    Finale  — ungated: evade the behavioral rule only by breaking behavior.
+
+  mode="promptlock" — each iteration is an independently LLM-GENERATED script
+    (PromptLock-style runtime polymorphism), not a feedback-driven rewrite.
 
 ``run_events`` is a generator that yields (event, data) tuples as it goes — the
 SSE server streams them live; ``run_loop`` consumes them into a results dict for
 the CLI and tests. Event vocabulary matches ARCHITECTURE.md §11.
 
     python3 -m referee.loop --iterations 8
+    python3 -m referee.loop --iterations 8 --mode promptlock
 """
 from __future__ import annotations
 
@@ -36,6 +42,11 @@ RESULTS = os.path.join(HERE, "results.json")
 
 def _seed_source() -> str:
     with open(os.path.join(HERE, "sample", "seed.c"), encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _promptlock_seed_source() -> str:
+    with open(os.path.join(HERE, "sample", "seed_promptlock.py"), encoding="utf-8") as fh:
         return fh.read()
 
 
@@ -140,7 +151,22 @@ def _propose_events(prev_source, feedback, index, *, preserve, track, target,
     return cand, mutator.provenance, obs
 
 
-def run_events(cap: int) -> Iterator[tuple[str, dict]]:
+def run_events(cap: int, mode: str = "metamorphic") -> Iterator[tuple[str, dict]]:
+    """Dispatch on payload mode (ARCHITECTURE.md §9.3):
+
+    - "metamorphic" (default): the LLM REWRITES one candidate between builds,
+      driven by detector feedback (Tracks 1-3 below).
+    - "promptlock": the LLM GENERATES a brand-new script every run, mimicking
+      runtime AI-ransomware (PromptLock) — no feedback loop, no source to
+      rewrite, just per-execution polymorphism.
+    """
+    if mode == "promptlock":
+        yield from _run_events_promptlock(cap)
+        return
+    yield from _run_events_metamorphic(cap)
+
+
+def _run_events_metamorphic(cap: int) -> Iterator[tuple[str, dict]]:
     seed = _seed_source()
     base = arena_run(seed)
     if not base.binary_bytes:
@@ -204,9 +230,81 @@ def run_events(cap: int) -> Iterator[tuple[str, dict]]:
     }
 
 
-def run_loop(cap: int) -> dict:
+def _use_llm_promptlock() -> bool:
+    return os.environ.get("HYDRA_FAKE") != "1" and llm.is_available()
+
+
+def _generate_promptlock_events(index: int):
+    """Generator: yields events for a freshly GENERATED script (not a rewrite
+    of the previous one — no detector feedback loop; per-run polymorphism is
+    the whole point). Returns (source, provenance, obs)."""
+    if _use_llm_promptlock():
+        parts: list[str] = []
+        try:
+            for tok in llm.generate_promptlock_stream(index):
+                parts.append(tok)
+                yield "rewrite_token", {"iteration": index, "track": 4, "text": tok}
+            cand = llm.extract_py("".join(parts))
+            obs = arena_run(cand, mode="promptlock")
+            if obs.compiled and behavior_preserved(obs):
+                yield "rewrite_done", {"iteration": index, "track": 4, "target": "falco",
+                                       "provenance": "llm", "source": cand, "sha256": _sha(obs)}
+                return cand, "llm", obs
+            yield "rewrite_note", {"iteration": index, "track": 4,
+                                   "text": "generated script did not exhibit the behavior — falling back"}
+        except Exception as exc:  # noqa: BLE001 - network/model -> fallback
+            log.warning("llm promptlock generation error (%s); falling back to mutator", exc)
+
+    cand = mutator.generate_promptlock(index)
+    obs = arena_run(cand, mode="promptlock")
+    yield "rewrite_done", {"iteration": index, "track": 4, "target": "falco",
+                           "provenance": mutator.provenance, "source": cand, "sha256": _sha(obs)}
+    return cand, mutator.provenance, obs
+
+
+def _run_events_promptlock(cap: int) -> Iterator[tuple[str, dict]]:
+    """PromptLock demonstration: every iteration is an independently generated
+    script (deterministic generation-0 seed, then LLM-generated or offline
+    fallback), scanned against the rule seeded on generation 0. Byte-level
+    signature dies run-to-run; the behavioral rule keys on the invariant
+    behavior, so it fires every time. See ARCHITECTURE.md §9.3."""
+    seed = _promptlock_seed_source()
+    base = arena_run(seed, mode="promptlock")
+    if not base.binary_bytes:
+        yield "error", {"stage": "baseline", "message": base.error or "seed script did not run"}
+        return
+
+    rule = yara_detector.build_rule(base.binary_bytes)
+    yv, fv = _yara(base, rule), falco_detector.evaluate(base)
+    yield "baseline", {"sha256": _sha(base), "yara": yv, "falco": fv, "source": seed}
+    yield "verdict", _row(0, 4, None, seed, base, yv, fv, "seed")
+    log.info("promptlock baseline  yara=%s  falco=%s", yv, fv)
+
+    sig_evasions, beh_evasions, total = 0, 0, 1
+    for i in range(1, cap + 1):
+        cand, prov, obs = yield from _generate_promptlock_events(i)
+        yv, fv = _yara(obs, rule), falco_detector.evaluate(obs)
+        yield "verdict", _row(i, 4, None, cand, obs, yv, fv, prov)
+        total += 1
+        preserved = behavior_preserved(obs)
+        if yv == "CLEAN":
+            sig_evasions += 1
+        if fv == "SILENT" and preserved:
+            beh_evasions += 1
+        log.info("promptlock i=%d  by=%s  yara=%s  falco=%s  behavior_preserved=%s",
+                 i, prov, yv, fv, preserved)
+
+    yield "summary", {
+        "mode": "promptlock",
+        "total_iterations": total,
+        "signature_evasions_by_regeneration": sig_evasions,
+        "behavioral_evasions_while_behavior_preserved": beh_evasions,
+    }
+
+
+def run_loop(cap: int, mode: str = "metamorphic") -> dict:
     rows, summary = [], {}
-    for name, data in run_events(cap):
+    for name, data in run_events(cap, mode=mode):
         if name == "verdict":
             rows.append(data)
         elif name == "summary":
@@ -219,14 +317,29 @@ def run_loop(cap: int) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Hydra adversarial loop")
     ap.add_argument("--iterations", type=int, default=ITERATION_CAP)
+    ap.add_argument("--mode", choices=["metamorphic", "promptlock"], default="metamorphic",
+                     help="metamorphic: LLM rewrites one candidate from feedback (default). "
+                          "promptlock: LLM generates a fresh script every run.")
     args = ap.parse_args()
 
-    result = run_loop(args.iterations)
+    result = run_loop(args.iterations, mode=args.mode)
     with open(RESULTS, "w", encoding="utf-8") as fh:
         json.dump(result, fh, indent=2)
+    print(f"results.json written -> {RESULTS}")
 
     s = result["summary"]
     print("\n" + "=" * 62)
+    if args.mode == "promptlock":
+        print("  mode: promptlock (runtime-generated script, per execution)")
+        print(f"  signature missed {s['signature_evasions_by_regeneration']}/"
+              f"{s['total_iterations'] - 1} regenerated runs")
+        print(f"  behavioral evasions while behavior preserved: "
+              f"{s['behavioral_evasions_while_behavior_preserved']}")
+        print("=" * 62)
+        ok = s["behavioral_evasions_while_behavior_preserved"] == 0
+        print("SELF-CHECK:", "PASS" if ok else "FAIL")
+        return 0 if ok else 1
+
     print(f"  signature evaded: {s['signature_evaded']} "
           f"(after {s['iterations_to_evade_signature']} iterations)")
     print(f"  behavioral evasions while behavior preserved: "
@@ -234,7 +347,6 @@ def main() -> int:
     print(f"  behavior had to be broken to evade behavior rule: "
           f"{s['behavioral_evasion_required_breaking_behavior']}")
     print("=" * 62)
-    print(f"results.json written -> {RESULTS}")
 
     ok = (s["signature_evaded"]
           and s["behavioral_evasions_while_behavior_preserved"] == 0

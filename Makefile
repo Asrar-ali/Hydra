@@ -1,14 +1,17 @@
 # Hydra — common tasks. See ARCHITECTURE.md and CLAUDE.md.
 MODEL ?= jimscard/whiterabbit-neo
 
-.PHONY: help run test dashboard setup arena-build clean
+.PHONY: help run run-promptlock test dashboard setup arena-build clean
 
 help:  ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  %-14s %s\n", $$1, $$2}'
 
-run:  ## run the adversarial loop with the fake arena (no deps)
+run:  ## run the adversarial loop (metamorphic mode) with the fake arena (no deps)
 	HYDRA_FAKE=1 python3 -m referee.loop --iterations 8
+
+run-promptlock:  ## run the adversarial loop (promptlock mode) with the fake arena (no deps)
+	HYDRA_FAKE=1 python3 -m referee.loop --iterations 8 --mode promptlock
 
 test:  ## run unit tests
 	python3 -m unittest discover -s tests -v

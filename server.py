@@ -2,7 +2,8 @@
 
     GET /                serve the dashboard
     GET /run            run the loop live, stream events as SSE
-                        query: iterations=N, fake=1 (no container), record=1
+                        query: iterations=N, fake=1 (no container), record=1,
+                               mode=metamorphic|promptlock (default metamorphic)
     GET /replay         replay a recorded run (replay.json) with live pacing
     GET /health         liveness
 
@@ -82,6 +83,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _run(self, params):
         cap = int(params.get("iterations", ["6"])[0])
+        mode = params.get("mode", ["metamorphic"])[0]
+        if mode not in ("metamorphic", "promptlock"):
+            mode = "metamorphic"
         if params.get("fake", ["0"])[0] == "1":
             os.environ["HYDRA_FAKE"] = "1"
         else:
@@ -91,7 +95,7 @@ class Handler(BaseHTTPRequestHandler):
         self._open_sse()
         collected = []
         try:
-            for name, data in run_events(cap):
+            for name, data in run_events(cap, mode=mode):
                 collected.append([name, data])
                 self._send(name, data)
         except BrokenPipeError:
