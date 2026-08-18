@@ -106,7 +106,7 @@ sequenceDiagram
   Y-->>R: MATCH (rule seeded on S0)
   F-->>R: FIRED (ransomware rule)
   loop until target detector evaded, or iteration cap
-    R->>A: source + "caught by <detector>: <reason>; evade it, preserve behavior"
+    R->>A: source + "caught by <detector>: <reason>, evade it, preserve behavior"
     A-->>R: rewritten source S'
     R->>N: compile + run S' (no network, resource-limited)
     N-->>R: compiled?, syscall trace, entropy, files-written
