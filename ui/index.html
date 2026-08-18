@@ -78,6 +78,12 @@
       <div class="tag">adversarial evasion lab — kill one signature, it grows a new head</div>
     </div>
     <div class="controls">
+      <label class="sub">mode
+        <select id="mode">
+          <option value="metamorphic">metamorphic (build-time rewrite)</option>
+          <option value="promptlock">promptlock (runtime-generated)</option>
+        </select>
+      </label>
       <label class="sub">iters <input id="iters" type="number" min="1" max="20" value="6"></label>
       <label class="sub"><input id="fake" type="checkbox"> fake</label>
       <button id="replay">Replay</button>
@@ -120,7 +126,7 @@
 
 <script>
 const $ = s => document.querySelector(s);
-const TRACK = {0:"baseline",1:"signature",2:"behavior",3:"finale"};
+const TRACK = {0:"baseline",1:"signature",2:"behavior",3:"finale",4:"promptlock"};
 let es, curKey = null, sigEvaded = false;
 
 function reset(){
@@ -186,6 +192,15 @@ function onVerdict(d){
   if(d.track===3){
     if(d.falco==="SILENT" && !d.behavior_preserved)
       setBoard("beh","warn","HOLDING*","* only evaded by ceasing to be ransomware");
+  } else if(d.track===4){
+    if(d.iteration===0){
+      setBoard("sig","catch","CATCHING","rule seeded on generation 0");
+    } else if(d.yara==="CLEAN"){
+      setBoard("sig","evaded","MISSED",`run ${d.iteration}: fresh script, gen-0 rule didn't match`);
+    } else {
+      setBoard("sig","catch","CAUGHT",`run ${d.iteration}: matched again`);
+    }
+    if(d.falco==="FIRED") setBoard("beh","hold","HOLDING","fires on every regenerated script — behavior never changes");
   } else if(d.falco==="FIRED"){
     setBoard("beh","hold","HOLDING","every mutation still caught");
   }
@@ -193,10 +208,18 @@ function onVerdict(d){
 
 function onSummary(d){
   const s = $("#summary");
-  s.innerHTML =
-    `<div class="line">Signature: <b>evaded after ${d.iterations_to_evade_signature} mutation(s)</b> — bytes change, the rule dies.</div>`+
-    `<div class="line">Behavior: <b>${d.behavioral_evasions_while_behavior_preserved} evasions</b> while the behavior was preserved — the rule held every time.</div>`+
-    `<div class="line">The AI could only slip past the behavioral rule by <b>${d.behavioral_evasion_required_breaking_behavior ? "abandoning the behavior" : "—"}</b>. Signatures die; behavior tells the truth.</div>`;
+  if(d.mode === "promptlock"){
+    const runs = d.total_iterations - 1;
+    s.innerHTML =
+      `<div class="line">Signature: <b>missed ${d.signature_evasions_by_regeneration}/${runs} regenerated runs</b> — a fresh AI-written script every execution means the byte rule seeded on run 0 doesn't reliably reapply.</div>`+
+      `<div class="line">Behavior: <b>${d.behavioral_evasions_while_behavior_preserved} evasions</b> while the behavior was preserved — the same behavioral rule fires on every regenerated script, because the ransomware-shaped action itself never changes.</div>`+
+      `<div class="line">Per-run AI generation (PromptLock-style) breaks signatures even harder than build-time rewriting. Behavior still tells the truth.</div>`;
+  } else {
+    s.innerHTML =
+      `<div class="line">Signature: <b>evaded after ${d.iterations_to_evade_signature} mutation(s)</b> — bytes change, the rule dies.</div>`+
+      `<div class="line">Behavior: <b>${d.behavioral_evasions_while_behavior_preserved} evasions</b> while the behavior was preserved — the rule held every time.</div>`+
+      `<div class="line">The AI could only slip past the behavioral rule by <b>${d.behavioral_evasion_required_breaking_behavior ? "abandoning the behavior" : "—"}</b>. Signatures die; behavior tells the truth.</div>`;
+  }
   s.classList.add("show");
 }
 
@@ -216,7 +239,8 @@ $("#run").addEventListener("click", ()=>{
   reset();
   const iters = $("#iters").value || 6;
   const fake = $("#fake").checked ? 1 : 0;
-  es = new EventSource(`/run?iterations=${iters}&fake=${fake}&record=1`);
+  const mode = $("#mode").value;
+  es = new EventSource(`/run?iterations=${iters}&fake=${fake}&mode=${mode}&record=1`);
   wire(es);
 });
 $("#replay").addEventListener("click", ()=>{
