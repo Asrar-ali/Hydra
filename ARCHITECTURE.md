@@ -234,7 +234,40 @@ ransomware detection. Falco evaluates the syscall stream from the arena and
 reports FIRED or SILENT. Because the rule keys on behavior, byte-level rewrites do
 not change its verdict.
 
-### 9.3 Real-malware validation (optional, gated)
+### 9.3 Payload modes: build-time vs. runtime polymorphism
+
+Hydra runs two payload modes, selectable per run (`mode=metamorphic` default, or
+`mode=promptlock`):
+
+- **`metamorphic`** (§5 above): the adversary *rewrites* one candidate between
+  builds, driven by detector feedback. Bytes change build-to-build; the
+  behavior is the same C program, compiled fresh each time.
+- **`promptlock`**: modeled on PromptLock (ESET, Aug 2025) — the first
+  documented AI-written ransomware, which has a local LLM generate a fresh Lua
+  script **at runtime, every execution**, rather than reusing one binary. In
+  this mode the referee (on the host) asks the local LLM to *generate* a brand
+  new Python script each iteration — not a rewrite, an independent generation —
+  implementing the same benign behavior contract as the seed (§6): create N
+  files, rewrite them with high-entropy content, decrypt, exit. The arena runs
+  it directly with an interpreter (no compile step); safety is unchanged — the
+  script only ever executes inside the `--network=none` container, and only the
+  host-side referee talks to Ollama.
+
+  Because every run is a structurally distinct program, the YARA family rule
+  seeded on generation 0 frequently misses later runs — signature evasion
+  falls out of the generation process itself, no feedback loop required. The
+  behavioral rule is unaffected: it evaluates the syscall trace, which is
+  interpreter-agnostic, and the ransomware-shaped action (bulk high-entropy
+  rewrite) is invariant across every generated script. This is the sharper
+  version of the paper's central claim: per-run AI polymorphism defeats
+  signatures even more completely than build-time rewriting, while behavior
+  still holds every time.
+
+  Deterministic fallback (no LLM): `adversary/mutator.py::generate_promptlock`
+  assembles a Python script that still varies identifiers/prefixes/keys per
+  iteration, mirroring the Track-1 offline mutator's role.
+
+### 9.4 Real-malware validation (optional, gated)
 
 To show the rules are real and not tuned only to our sample:
 
@@ -275,8 +308,10 @@ Validation, all gating before a demo:
 
 ## 11. SSE event contract
 
-`GET /run` streams `text/event-stream`. Named events with JSON `data`. Consumers
-ignore unknown fields.
+`GET /run` streams `text/event-stream`. Query params: `iterations`, `fake=1`
+(no container), `record=1`, `mode=metamorphic|promptlock` (default
+`metamorphic`; §9.3). Named events with JSON `data`. Consumers ignore unknown
+fields.
 
 | Event | Payload | Meaning |
 |---|---|---|
@@ -298,16 +333,18 @@ common/contracts.py              shared data contracts (imported by every lane)
 common/config.py                 thresholds (K, H), iteration cap, model config
 common/logging.py                logger factory
 common/entropy.py                Shannon entropy helper
-sample/seed.c                    benign, ransomware-shaped seed source
-arena/run.py                     throwaway-container compile + run + capture (fake mode for now)
-arena/Dockerfile                 arena image (gcc + strace)
-arena/entrypoint.sh              in-container compile + strace + emit observation
+sample/seed.c                    benign, ransomware-shaped seed source (metamorphic mode)
+sample/seed_promptlock.py        benign, ransomware-shaped seed script (promptlock mode, §9.3)
+arena/run.py                     throwaway-container compile/run + capture; mode=metamorphic|promptlock
+arena/Dockerfile                 arena image (gcc + strace + python3)
+arena/entrypoint.sh              in-container compile + strace + emit observation (metamorphic mode)
+arena/entrypoint_script.sh       in-container run-under-strace, no compile (promptlock mode)
 detectors/yara_detector.py       signature detector (real YARA; python fallback if yara absent)
 detectors/falco_detector.py      behavioral detector (evaluates the class rule)
 detectors/hydra_ransomware.yaml  behavioral rule (spec)
 detectors/rules/                 generated YARA rules land here at runtime
-adversary/llm.py                 WhiteRabbitNeo (Ollama) adversary + feedback prompt
-adversary/mutator.py             deterministic mutator (Track-1 fallback)
+adversary/llm.py                 WhiteRabbitNeo (Ollama) adversary: rewrite (metamorphic) + generate (promptlock)
+adversary/mutator.py             deterministic fallback: mutator (Track-1) + generate_promptlock
 referee/loop.py                  the adversarial loop, tracks, metrics
 referee/gate.py                  behavior-preservation gate
 server.py                        HTTP + SSE server
@@ -345,9 +382,12 @@ HYDRA_RDSEC_KEY=                             # from an untracked .env; never com
 ## Appendix B. Run
 
 ```
-# one full adversarial run, headless
+# one full adversarial run, headless (metamorphic mode, default)
 python3 referee/loop.py --iterations 12
 
-# live dashboard
+# runtime-generated-payload mode (§9.3)
+python3 referee/loop.py --iterations 12 --mode promptlock
+
+# live dashboard (mode is a toggle in the UI, or ?mode=promptlock on /run)
 python3 server.py            # then open the served URL
 ```

@@ -34,12 +34,23 @@ make dashboard  # http://localhost:8000/  ->  ▶ Run
 For the real pipeline: `make setup` (installs yara, pulls the model), then
 `make arena-build`, then run without `HYDRA_FAKE`.
 
+## Two payload modes
+
+- **metamorphic** (default) — the LLM rewrites one C program between builds,
+  reacting to detector feedback each time. `make run`
+- **promptlock** — modeled on the PromptLock ransomware (ESET, Aug 2025): the
+  LLM writes a brand-new Python script every single run instead of reusing one
+  binary. No feedback loop, just a fresh script each time. `make run-promptlock`
+
+Same story either way: the signature rule dies, the behavioral rule doesn't.
+Toggle it in the dashboard or pass `--mode promptlock` to `referee/loop.py`.
+
 ## Layout
 
 ```
 common/       shared contracts, config, logging, entropy      (import from here)
-sample/       seed.c — the benign, ransomware-shaped sample    (Lane 1)
-arena/        throwaway-container compile + run + capture       (Lane 1)
+sample/       seed.c / seed_promptlock.py — the benign sample  (Lane 1)
+arena/        throwaway-container compile/run + capture         (Lane 1)
 detectors/    yara (signature) + falco (behavioral) + rules     (Lane 2)
 adversary/    llm.py (Ollama) + mutator.py (fallback)           (Lane 3)
 referee/      loop.py + gate.py — the loop, the metrics         (Lane 4)
