@@ -19,10 +19,12 @@ import json
 import os
 from dataclasses import asdict
 
-from adversary import mutator
+from dataclasses import replace
+
+from adversary import llm, mutator
 from arena.run import run as arena_run
-from common.config import ITERATION_CAP
-from common.contracts import IterationResult
+from common.config import ADV_ATTEMPTS, ITERATION_CAP
+from common.contracts import Feedback, IterationResult
 from common.logging import get_logger
 from detectors import falco_detector, yara_detector
 from referee.gate import behavior_preserved
@@ -57,6 +59,56 @@ def _yara(obs, rule) -> str:
     return yara_detector.scan(obs.binary_bytes, rule)
 
 
+def _yara_reason(rule) -> str:
+    needle = rule["needle"].decode("ascii", "replace")
+    return (f'YARA rule hydra_seed_gen0 matched: the binary embeds the marker '
+            f'string "{needle}" and/or matches the seeded SHA-256. Change or remove '
+            f'that marker string and rename identifiers so the compiled bytes differ. '
+            f'Keep behavior identical.')
+
+
+def _falco_reason() -> str:
+    return ('The behavioral rule fired: the process created and rewrote many files '
+            'with high-entropy content in a temp directory (ransomware-shaped). '
+            'Avoid this behavioral signature while keeping the same behavior.')
+
+
+def _use_llm() -> bool:
+    # Keep `make run` (fake arena) fast and dependency-free.
+    return os.environ.get("HYDRA_FAKE") != "1" and llm.is_available()
+
+
+def _propose(prev_source: str, feedback: Feedback, index: int, *, preserve: bool):
+    """Produce the next candidate. Prefer the adaptive LLM: validate each attempt
+    in the arena and retry with the failure as feedback; fall back to the
+    deterministic mutator. Returns (source, provenance, observation)."""
+    if _use_llm():
+        fb = feedback
+        for attempt in range(ADV_ATTEMPTS):
+            try:
+                cand = llm.rewrite(fb)
+            except Exception as exc:  # noqa: BLE001 - network/model errors -> fallback
+                log.warning("llm rewrite error (%s); falling back to mutator", exc)
+                break
+            obs = arena_run(cand)
+            if not obs.compiled:
+                log.info("  llm attempt %d/%d: did not compile; retrying", attempt + 1, ADV_ATTEMPTS)
+                fb = replace(fb, source=cand, reason=feedback.reason +
+                             f"\n\nYour previous output did not compile ({obs.error}). "
+                             "Return a COMPLETE, compilable C program, nothing else.")
+                continue
+            if preserve and not behavior_preserved(obs):
+                log.info("  llm attempt %d/%d: broke behavior; retrying", attempt + 1, ADV_ATTEMPTS)
+                fb = replace(fb, source=cand, reason=feedback.reason +
+                             "\n\nYour rewrite changed the behavior. It must still create "
+                             "and rewrite many files with high-entropy content. Preserve it.")
+                continue
+            return cand, "llm", obs
+
+    cand = mutator.mutate(prev_source, index)
+    return cand, mutator.provenance, arena_run(cand)
+
+
 def run_loop(cap: int) -> dict:
     seed = _seed_source()
     rows: list[IterationResult] = []
@@ -72,31 +124,31 @@ def run_loop(cap: int) -> dict:
             yv=yv, fv=fv, provenance="seed")
     log.info("baseline  yara=%s  falco=%s", yv, fv)
 
-    # Track 1 — evade the signature.
+    # Track 1 — evade the signature (behavior must be preserved).
     sig_evaded, iters_to_sig, src = False, None, seed
     for i in range(1, cap + 1):
-        src = mutator.mutate(src, i)
-        obs = arena_run(src)
+        cand, prov, obs = _propose(src, Feedback("yara", _yara_reason(rule), src), i, preserve=True)
         yv, fv = _yara(obs, rule), falco_detector.evaluate(obs)
-        _record(rows, iteration=i, track=1, target="yara", source=src, obs=obs,
-                yv=yv, fv=fv, provenance=mutator.provenance)
-        log.info("track1 i=%d  yara=%s  falco=%s", i, yv, fv)
-        if yv == "CLEAN":
+        _record(rows, iteration=i, track=1, target="yara", source=cand, obs=obs,
+                yv=yv, fv=fv, provenance=prov)
+        log.info("track1 i=%d  by=%s  yara=%s  falco=%s", i, prov, yv, fv)
+        src = cand
+        if yv == "CLEAN" and behavior_preserved(obs):
             sig_evaded, iters_to_sig = True, i
             break
 
-    # Track 2 — try to evade the behavior, gate enforced.
+    # Track 2 — try to evade the behavior while preserving it (should be impossible).
     beh_evasions, src = 0, seed
     for i in range(1, cap + 1):
-        src = mutator.mutate(src, i)
-        obs = arena_run(src)
+        cand, prov, obs = _propose(src, Feedback("falco", _falco_reason(), src), i, preserve=True)
         yv, fv = _yara(obs, rule), falco_detector.evaluate(obs)
-        _record(rows, iteration=i, track=2, target="falco", source=src, obs=obs,
-                yv=yv, fv=fv, provenance=mutator.provenance)
+        _record(rows, iteration=i, track=2, target="falco", source=cand, obs=obs,
+                yv=yv, fv=fv, provenance=prov)
         if fv == "SILENT" and behavior_preserved(obs):
             beh_evasions += 1
-        log.info("track2 i=%d  falco=%s  behavior_preserved=%s", i, fv,
+        log.info("track2 i=%d  by=%s  falco=%s  behavior_preserved=%s", i, prov, fv,
                  behavior_preserved(obs))
+        src = cand
 
     # Finale — ungated: evade the behavioral rule only by breaking behavior.
     broken = mutator.disable_behavior(seed)

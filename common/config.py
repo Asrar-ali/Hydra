@@ -14,7 +14,8 @@ ENTROPY_H: float = float(os.environ.get("HYDRA_ENTROPY_H", "7.0"))  # min mean b
 
 # Loop bounds.
 ITERATION_CAP: int = int(os.environ.get("HYDRA_ITERATION_CAP", "12"))
+ADV_ATTEMPTS: int = int(os.environ.get("HYDRA_ADV_ATTEMPTS", "3"))  # LLM retries per iteration
 
 # Ollama / adversary.
 OLLAMA_HOST: str = os.environ.get("HYDRA_OLLAMA_HOST", "http://127.0.0.1:11434")
-ADVERSARY_MODEL: str = os.environ.get("HYDRA_ADVERSARY_MODEL", "whiterabbitneo")
+ADVERSARY_MODEL: str = os.environ.get("HYDRA_ADVERSARY_MODEL", "jimscard/whiterabbit-neo")

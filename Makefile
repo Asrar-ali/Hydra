@@ -1,5 +1,5 @@
 # Hydra — common tasks. See ARCHITECTURE.md and CLAUDE.md.
-MODEL ?= whiterabbitneo
+MODEL ?= jimscard/whiterabbit-neo
 
 .PHONY: help run test dashboard setup arena-build clean
 
