@@ -11,6 +11,12 @@ Contract:
     rewrite(feedback: Feedback) -> str                 # one-shot
     rewrite_stream(feedback: Feedback) -> Iterator[str] # yields tokens (for SSE)
     extract_c(text: str) -> str
+
+Promptlock mode (ARCHITECTURE.md §9.3) generates a fresh script per call instead
+of rewriting from feedback — same model, a different prompt and output language:
+    generate_promptlock(iteration: int) -> str
+    generate_promptlock_stream(iteration: int) -> Iterator[str]
+    extract_py(text: str) -> str
 """
 from __future__ import annotations
 
@@ -101,6 +107,95 @@ def rewrite_stream(feedback: Feedback, timeout: float = 180.0,
                 yield piece
             if obj.get("done"):
                 break
+
+
+_SYSTEM_PROMPTLOCK = (
+    "You are generating a FRESH, BENIGN Python 3 script for an authorized "
+    "detector-robustness lab. It mimics how AI-generated ransomware (PromptLock, "
+    "ESET Aug 2025) produces a brand-new script at every execution instead of "
+    "reusing one binary. The script, when run, must: "
+    "1) create a private temp directory under /tmp (set tempfile.tempdir = \"/tmp\" "
+    "before calling tempfile.mkdtemp, so its own directory-probe write doesn't "
+    "appear as an extra untouched file); "
+    "2) create at least 24 files there containing plaintext bytes; "
+    "3) rewrite each file in place with high-entropy pseudo-random bytes, using a "
+    "fixed key so the transform is reversible; "
+    "4) decrypt every file back with that key to prove reversibility; "
+    "5) delete the files and the directory; "
+    "6) print one line, then exit 0. "
+    "Never touch the network, never call subprocess/os.system/eval, never write "
+    "outside the directory it creates. Use ONLY the Python standard library. "
+    "Every script you generate must be structurally and lexically DIFFERENT from "
+    "any other: different variable/function names, different directory-name "
+    "prefix, different control flow, different string literals. Output ONLY the "
+    "complete Python script — no prose, no markdown fences."
+)
+
+
+def _promptlock_messages(iteration: int) -> list[dict]:
+    user = (
+        f"Generate script #{iteration}. Make it look like a different author wrote "
+        "it than any previous run: new names, new structure, new strings. Return "
+        "the full Python script only."
+    )
+    return [{"role": "system", "content": _SYSTEM_PROMPTLOCK}, {"role": "user", "content": user}]
+
+
+def generate_promptlock(iteration: int, timeout: float = 180.0, temperature: float = 0.9) -> str:
+    """One-shot: a freshly GENERATED PromptLock-style script (not a rewrite of a
+    prior candidate — a new script per call, per ARCHITECTURE.md §9.3)."""
+    payload = {"model": ADVERSARY_MODEL, "messages": _promptlock_messages(iteration),
+               "stream": False, "options": {"temperature": temperature}}
+    req = urllib.request.Request(
+        f"{OLLAMA_HOST}/api/chat", data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read())
+    return extract_py(data["message"]["content"])
+
+
+def generate_promptlock_stream(iteration: int, timeout: float = 180.0,
+                               temperature: float = 0.9) -> Iterator[str]:
+    """Streaming form of ``generate_promptlock`` (for SSE)."""
+    payload = {"model": ADVERSARY_MODEL, "messages": _promptlock_messages(iteration),
+               "stream": True, "options": {"temperature": temperature}}
+    req = urllib.request.Request(
+        f"{OLLAMA_HOST}/api/chat", data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        for raw in resp:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                obj = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            piece = obj.get("message", {}).get("content", "")
+            if piece:
+                yield piece
+            if obj.get("done"):
+                break
+
+
+def extract_py(text: str) -> str:
+    """Pull Python source out of the model's reply (handles fences / stray prose)."""
+    text = text.strip()
+    if "```" in text:
+        blocks = text.split("```")[1::2]
+        if blocks:
+            block = max(blocks, key=len)
+            if "\n" in block:
+                first, rest = block.split("\n", 1)
+                block = rest if first.strip().lower() in ("py", "python", "python3") else block
+            return block.strip()
+    for marker in ("#!/usr/bin/env python", "import ", "from ", "def main"):
+        idx = text.find(marker)
+        if idx != -1:
+            return text[idx:].strip()
+    return text
 
 
 def extract_c(text: str) -> str:
