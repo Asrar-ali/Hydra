@@ -1,4 +1,4 @@
-"""The adversarial loop — the heart of Hydra. See ARCHITECTURE.md §5, §9.3, §10, §11, §11.
+"""The adversarial loop — the heart of Hydra. See ARCHITECTURE.md §5, §9.3, §10, §11.
 
 Two payload modes (ARCHITECTURE.md §9.3):
 
@@ -21,17 +21,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import hashlib
 import json
 import os
 from dataclasses import replace
-from typing import Iterator
 from typing import Iterator
 
 from adversary import llm, mutator
 from arena.run import run as arena_run
 from common.config import ADV_ATTEMPTS, ITERATION_CAP
-from common.contracts import Feedback
 from common.contracts import Feedback
 from common.logging import get_logger
 from detectors import falco_detector, yara_detector
@@ -55,10 +52,6 @@ def _promptlock_seed_source() -> str:
 
 def _yara(obs, rule) -> str:
     return yara_detector.scan(obs.binary_bytes, rule)
-
-
-def _sha(obs) -> str:
-    return obs.binary_sha256 or ""
 
 
 def _sha(obs) -> str:
@@ -117,20 +110,13 @@ def _propose_events(prev_source, feedback, index, *, preserve, track, target,
         fb, best = feedback, None
         for attempt in range(ADV_ATTEMPTS):
             parts: list[str] = []
-            parts: list[str] = []
             try:
                 for tok in llm.rewrite_stream(fb):
                     parts.append(tok)
                     yield "rewrite_token", {"iteration": index, "track": track, "text": tok}
             except Exception as exc:  # noqa: BLE001 - network/model -> fallback
                 log.warning("llm stream error (%s); falling back to mutator", exc)
-                for tok in llm.rewrite_stream(fb):
-                    parts.append(tok)
-                    yield "rewrite_token", {"iteration": index, "track": track, "text": tok}
-            except Exception as exc:  # noqa: BLE001 - network/model -> fallback
-                log.warning("llm stream error (%s); falling back to mutator", exc)
                 break
-            cand = llm.extract_c("".join(parts))
             cand = llm.extract_c("".join(parts))
             obs = arena_run(cand)
             if not obs.compiled:
@@ -189,13 +175,8 @@ def _run_events_metamorphic(cap: int) -> Iterator[tuple[str, dict]]:
         yield "error", {"stage": "baseline", "message": base.error or "seed did not compile"}
         return
 
-        yield "error", {"stage": "baseline", "message": base.error or "seed did not compile"}
-        return
-
     rule = yara_detector.build_rule(base.binary_bytes)
     yv, fv = _yara(base, rule), falco_detector.evaluate(base)
-    yield "baseline", {"sha256": _sha(base), "yara": yv, "falco": fv, "source": seed}
-    yield "verdict", _row(0, 0, None, seed, base, yv, fv, "seed")
     yield "baseline", {"sha256": _sha(base), "yara": yv, "falco": fv, "source": seed}
     yield "verdict", _row(0, 0, None, seed, base, yv, fv, "seed")
     log.info("baseline  yara=%s  falco=%s", yv, fv)
@@ -210,8 +191,6 @@ def _run_events_metamorphic(cap: int) -> Iterator[tuple[str, dict]]:
         yv, fv = _yara(obs, rule), falco_detector.evaluate(obs)
         yield "verdict", _row(i, 1, "yara", cand, obs, yv, fv, prov)
         total += 1
-        yield "verdict", _row(i, 1, "yara", cand, obs, yv, fv, prov)
-        total += 1
         log.info("track1 i=%d  by=%s  yara=%s  falco=%s", i, prov, yv, fv)
         src = cand
         if yv == "CLEAN" and behavior_preserved(obs):
@@ -223,11 +202,7 @@ def _run_events_metamorphic(cap: int) -> Iterator[tuple[str, dict]]:
     for i in range(1, cap + 1):
         cand, prov, obs = yield from _propose_events(
             src, Feedback("falco", _falco_reason(), src), i, preserve=True, track=2, target="falco")
-        cand, prov, obs = yield from _propose_events(
-            src, Feedback("falco", _falco_reason(), src), i, preserve=True, track=2, target="falco")
         yv, fv = _yara(obs, rule), falco_detector.evaluate(obs)
-        yield "verdict", _row(i, 2, "falco", cand, obs, yv, fv, prov)
-        total += 1
         yield "verdict", _row(i, 2, "falco", cand, obs, yv, fv, prov)
         total += 1
         if fv == "SILENT" and behavior_preserved(obs):
@@ -241,11 +216,7 @@ def _run_events_metamorphic(cap: int) -> Iterator[tuple[str, dict]]:
     obs = arena_run(broken)
     yield "rewrite_done", {"iteration": cap + 1, "track": 3, "target": "falco",
                            "provenance": "offline", "source": broken, "sha256": _sha(obs)}
-    yield "rewrite_done", {"iteration": cap + 1, "track": 3, "target": "falco",
-                           "provenance": "offline", "source": broken, "sha256": _sha(obs)}
     yv, fv = _yara(obs, rule), falco_detector.evaluate(obs)
-    yield "verdict", _row(cap + 1, 3, "falco", broken, obs, yv, fv, "offline")
-    total += 1
     yield "verdict", _row(cap + 1, 3, "falco", broken, obs, yv, fv, "offline")
     total += 1
     beh_required_break = fv == "SILENT" and not behavior_preserved(obs)

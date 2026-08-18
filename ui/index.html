@@ -301,16 +301,54 @@ function wire(src){
   src.onerror = ()=>{ done(); };
 }
 
+// One-shot SSE stream via fetch — no auto-reconnect unlike EventSource.
+function openStream(url) {
+  const ctrl = new AbortController();
+  const listeners = {}, src = {
+    addEventListener(evt, fn) { listeners[evt] = fn; },
+    close() { ctrl.abort(); },
+  };
+  Object.defineProperty(src, 'onerror', { set(fn) { src._onerror = fn; } });
+
+  (async () => {
+    try {
+      const resp = await fetch(url, { signal: ctrl.signal });
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const blocks = buf.split('\n\n');
+        buf = blocks.pop();
+        for (const block of blocks) {
+          let name = 'message', data = '';
+          for (const line of block.split('\n')) {
+            if (line.startsWith('event: ')) name = line.slice(7);
+            else if (line.startsWith('data: ')) data = line.slice(6);
+          }
+          if (listeners[name]) listeners[name]({ data });
+        }
+      }
+    } catch(e) {
+      if (e.name !== 'AbortError' && src._onerror) src._onerror(e);
+    }
+  })();
+
+  return src;
+}
+
 $("#run").addEventListener("click", ()=>{
   reset();
   const iters = $("#iters").value || 6;
   const fake = $("#fake").checked ? 1 : 0;
   const mode = $("#mode").value;
-  es = new EventSource(`/run?iterations=${iters}&fake=${fake}&mode=${mode}&record=1`);
+  es = openStream(`/run?iterations=${iters}&fake=${fake}&mode=${mode}&record=1`);
   wire(es);
 });
 $("#replay").addEventListener("click", ()=>{
-  reset(); es = new EventSource("/replay"); wire(es);
+  reset(); es = openStream("/replay"); wire(es);
 });
 done();
 </script>
