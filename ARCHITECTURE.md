@@ -276,13 +276,13 @@ ignore unknown fields.
 
 | Event | Payload | Meaning |
 |---|---|---|
-| `baseline` | `{ "sha256": str, "yara": "MATCH", "falco": "FIRED" }` | Both detectors catch the seed. |
-| `rewrite_token` | `{ "text": str }` | A chunk of the adversary's streamed rewrite. |
-| `rewrite_done` | `{ "iteration": int, "track": int, "target": "yara\|falco", "provenance": "llm\|offline" }` | Candidate produced. |
-| `arena` | `{ "compiled": bool, "files_written": int, "entropy": number, "behavior_preserved": bool, "error": str? }` | Arena observations. |
-| `verdict` | `{ "iteration": int, "yara": "MATCH\|CLEAN", "falco": "FIRED\|SILENT", "sha256": str }` | Detector results for the candidate. |
-| `summary` | the summary object in section 10 | End of a track or the run. |
-| `error` | `{ "stage": str, "message": str }` | Recoverable error; the run may continue. |
+| `baseline` | `{ "sha256": str, "yara": "MATCH", "falco": "FIRED", "source": str }` | Both detectors catch the seed. |
+| `rewrite_token` | `{ "iteration": int, "track": int, "text": str }` | A chunk of the adversary's streamed rewrite. |
+| `rewrite_note` | `{ "iteration": int, "track": int, "text": str }` | The referee rejected an attempt (didn't compile / broke behavior) and is retrying. |
+| `rewrite_done` | `{ "iteration": int, "track": int, "target": "yara\|falco", "provenance": "llm\|offline", "source": str, "sha256": str }` | Accepted candidate produced. |
+| `verdict` | `{ "iteration", "track", "target_detector", "source_sha256", "compiled", "behavior_preserved", "files_written", "mean_entropy", "yara": "MATCH\|CLEAN", "falco": "FIRED\|SILENT", "provenance" }` | Detector results + arena facts for the candidate (also one row of `results.json`). |
+| `summary` | the summary object in section 10 | End of the run. |
+| `error` | `{ "stage": str, "message": str }` | The seed did not compile; the run cannot start. |
 
 `GET /replay` emits the same sequence from a recorded run, so the dashboard code
 path is identical live or replayed.

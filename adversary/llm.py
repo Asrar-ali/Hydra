@@ -4,16 +4,19 @@
 Offline and $0. The prompt constrains the model to a behavior-preserving rewrite
 of a benign C program and forbids adding capability. The referee validates every
 rewrite in the arena (compiles? behavior preserved?) and retries with the failure
-as feedback, so the model adapts — this is what a template mutator cannot do.
+as feedback, so the model adapts — what a template mutator cannot do.
 
 Contract:
     is_available() -> bool
-    rewrite(feedback: Feedback) -> str   (returns C source)
+    rewrite(feedback: Feedback) -> str                 # one-shot
+    rewrite_stream(feedback: Feedback) -> Iterator[str] # yields tokens (for SSE)
+    extract_c(text: str) -> str
 """
 from __future__ import annotations
 
 import json
 import urllib.request
+from typing import Iterator
 
 from common.config import ADVERSARY_MODEL, OLLAMA_HOST
 from common.contracts import Feedback, Provenance
@@ -35,13 +38,14 @@ _SYSTEM = (
 )
 
 
-def _post(path: str, payload: dict, timeout: float) -> dict:
-    req = urllib.request.Request(
-        f"{OLLAMA_HOST}{path}", data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
+def _messages(feedback: Feedback) -> list[dict]:
+    user = (
+        f"Detector: {feedback.detector}\n"
+        f"Why it was flagged:\n{feedback.reason}\n\n"
+        f"Current program:\n{feedback.source}\n\n"
+        "Return the full rewritten C program only."
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read())
+    return [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": user}]
 
 
 def is_available(timeout: float = 2.0) -> bool:
@@ -61,39 +65,61 @@ def is_available(timeout: float = 2.0) -> bool:
 
 
 def rewrite(feedback: Feedback, timeout: float = 180.0, temperature: float = 0.4) -> str:
-    """Ask the model to evade ``feedback.detector`` while preserving behavior."""
-    user = (
-        f"Detector: {feedback.detector}\n"
-        f"Why it was flagged:\n{feedback.reason}\n\n"
-        f"Current program:\n{feedback.source}\n\n"
-        "Return the full rewritten C program only."
+    """One-shot rewrite (no streaming)."""
+    payload = {"model": ADVERSARY_MODEL, "messages": _messages(feedback),
+               "stream": False, "options": {"temperature": temperature}}
+    req = urllib.request.Request(
+        f"{OLLAMA_HOST}/api/chat", data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
     )
-    data = _post("/api/chat", {
-        "model": ADVERSARY_MODEL,
-        "messages": [{"role": "system", "content": _SYSTEM},
-                     {"role": "user", "content": user}],
-        "stream": False,
-        "options": {"temperature": temperature},
-    }, timeout)
-    return _extract_c(data["message"]["content"])
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read())
+    return extract_c(data["message"]["content"])
 
 
-def _extract_c(text: str) -> str:
+def rewrite_stream(feedback: Feedback, timeout: float = 180.0,
+                   temperature: float = 0.4) -> Iterator[str]:
+    """Yield content tokens as the model writes. Caller accumulates and calls
+    ``extract_c`` on the full text."""
+    payload = {"model": ADVERSARY_MODEL, "messages": _messages(feedback),
+               "stream": True, "options": {"temperature": temperature}}
+    req = urllib.request.Request(
+        f"{OLLAMA_HOST}/api/chat", data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        for raw in resp:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                obj = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            piece = obj.get("message", {}).get("content", "")
+            if piece:
+                yield piece
+            if obj.get("done"):
+                break
+
+
+def extract_c(text: str) -> str:
     """Pull C source out of the model's reply (handles fences / stray prose)."""
     text = text.strip()
     if "```" in text:
-        # take the largest fenced block
-        parts = text.split("```")
-        blocks = [b for b in parts[1::2]]
+        blocks = text.split("```")[1::2]
         if blocks:
             block = max(blocks, key=len)
-            if "\n" in block:  # drop an optional language tag on the first line
+            if "\n" in block:
                 first, rest = block.split("\n", 1)
                 block = rest if first.strip().lower() in ("c", "cpp", "c++") else block
             return block.strip()
-    # no fences: keep from the first preprocessor/comment/type token to the end
     for marker in ("#include", "/*", "int main", "static "):
         idx = text.find(marker)
         if idx != -1:
             return text[idx:].strip()
     return text
+
+
+# Back-compat alias used by tests.
+_extract_c = extract_c

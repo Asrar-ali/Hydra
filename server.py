@@ -1,9 +1,12 @@
 """Hydra dashboard server — HTTP + SSE. Lane 4 owns this.
 
-Skeleton: serves ui/index.html at ``/`` and streams a run at ``/run`` as SSE.
-For now ``/run`` runs the loop (fake mode) and replays its rows as ``verdict``
-events; the real path streams live per-iteration events, including the
-adversary's token stream. See ARCHITECTURE.md §11 for the event contract.
+    GET /                serve the dashboard
+    GET /run            run the loop live, stream events as SSE
+                        query: iterations=N, fake=1 (no container), record=1
+    GET /replay         replay a recorded run (replay.json) with live pacing
+    GET /health         liveness
+
+Event vocabulary matches ARCHITECTURE.md §11. Run:
 
     python3 server.py           # then open http://localhost:8000/
 """
@@ -11,13 +14,16 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 from common.logging import get_logger
-from referee.loop import run_loop
+from referee.loop import run_events
 
 log = get_logger("server")
 HERE = os.path.dirname(os.path.abspath(__file__))
+REPLAY = os.path.join(HERE, "replay.json")
 PORT = int(os.environ.get("HYDRA_PORT", "8000"))
 
 
@@ -26,13 +32,21 @@ class Handler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        route = urlparse(self.path)
+        params = parse_qs(route.query)
+        if route.path in ("/", "/index.html"):
             return self._serve_file(os.path.join(HERE, "ui", "index.html"), "text/html")
-        if self.path.startswith("/run"):
-            return self._stream_run()
+        if route.path == "/health":
+            return self._json({"ok": True})
+        if route.path == "/run":
+            return self._run(params)
+        if route.path == "/replay":
+            return self._replay()
         self.send_error(404)
 
-    def _serve_file(self, path: str, ctype: str):
+    # --- helpers ----------------------------------------------------------
+
+    def _serve_file(self, path, ctype):
         try:
             with open(path, "rb") as fh:
                 body = fh.read()
@@ -43,24 +57,67 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _sse(self, event: str, data: dict):
-        self.wfile.write(f"event: {event}\ndata: {json.dumps(data)}\n\n".encode())
-        self.wfile.flush()
+    def _json(self, obj):
+        body = json.dumps(obj).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(body)
 
-    def _stream_run(self):
+    def _open_sse(self):
+        # Close the connection when the stream ends so clients (and curl) don't
+        # hang waiting; the browser EventSource closes itself on `summary`.
+        self.close_connection = True
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
         self.end_headers()
-        os.environ.setdefault("HYDRA_FAKE", "1")  # TODO(lane4): real live run
-        result = run_loop(int(os.environ.get("HYDRA_ITERATION_CAP", "8")))
-        for row in result["iterations"]:
-            self._sse("verdict", row)
-        self._sse("summary", result["summary"])
+
+    def _send(self, name, data):
+        self.wfile.write(f"event: {name}\ndata: {json.dumps(data)}\n\n".encode())
+        self.wfile.flush()
+
+    # --- routes -----------------------------------------------------------
+
+    def _run(self, params):
+        cap = int(params.get("iterations", ["6"])[0])
+        if params.get("fake", ["0"])[0] == "1":
+            os.environ["HYDRA_FAKE"] = "1"
+        else:
+            os.environ.pop("HYDRA_FAKE", None)
+        record = params.get("record", ["0"])[0] == "1"
+
+        self._open_sse()
+        collected = []
+        try:
+            for name, data in run_events(cap):
+                collected.append([name, data])
+                self._send(name, data)
+        except BrokenPipeError:
+            return  # client disconnected
+        if record:
+            with open(REPLAY, "w", encoding="utf-8") as fh:
+                json.dump(collected, fh)
+            log.info("recorded %d events -> replay.json", len(collected))
+
+    def _replay(self):
+        try:
+            with open(REPLAY, encoding="utf-8") as fh:
+                events = json.load(fh)
+        except FileNotFoundError:
+            return self.send_error(404, "no replay.json (run with ?record=1 first)")
+        self._open_sse()
+        try:
+            for name, data in events:
+                self._send(name, data)
+                time.sleep(0.012 if name == "rewrite_token" else 0.35)
+        except BrokenPipeError:
+            return
 
 
 def main():
-    log.info("serving http://localhost:%d/", PORT)
+    log.info("Hydra dashboard on http://localhost:%d/", PORT)
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
 
 

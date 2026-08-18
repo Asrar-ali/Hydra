@@ -1,41 +1,227 @@
 <!doctype html>
+<html lang="en">
 <meta charset="utf-8">
 <title>Hydra</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  :root { color-scheme: light dark; }
-  body { margin: 0; font: 14px ui-monospace, Menlo, monospace;
-         background: #0b1117; color: #dce6ee; padding: 24px; }
-  h1 { letter-spacing: .12em; }
-  .sig-clean { color: #37b87e; } .sig-match { color: #e0774f; }
-  table { border-collapse: collapse; width: 100%; margin-top: 12px; }
-  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #24313c; }
-  button { font: inherit; padding: 8px 16px; cursor: pointer; }
-  /* TODO(lane4): the real dashboard — streamed rewrite, diff, dual scoreboards,
-     verify-yourself panel. This is a minimal SSE client to prove the wiring. */
+  :root{
+    --bg:#0b1117; --panel:#121a22; --panel2:#0f161d; --line:#24313c;
+    --ink:#dce6ee; --dim:#6c7e8c; --accent:#35b8d6;
+    --good:#37b87e; --bad:#e0774f; --amber:#e0b24b;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  .wrap{max-width:1200px;margin:0 auto;padding:22px 22px 60px}
+
+  header{display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+    border-bottom:1px solid var(--line);padding-bottom:16px}
+  .word{font-family:var(--mono);font-weight:700;font-size:34px;letter-spacing:.14em}
+  .word b{color:var(--accent)}
+  .tag{color:var(--dim);font-family:var(--mono);font-size:12px;letter-spacing:.06em}
+  .controls{margin-left:auto;display:flex;align-items:center;gap:10px}
+  input[type=number]{width:56px;background:var(--panel2);color:var(--ink);
+    border:1px solid var(--line);border-radius:7px;padding:7px;font:inherit}
+  button{font:inherit;font-weight:600;padding:9px 18px;border-radius:8px;cursor:pointer;
+    border:1px solid var(--line);background:var(--panel);color:var(--ink)}
+  button.go{background:var(--accent);color:#04222b;border-color:var(--accent)}
+  button:disabled{opacity:.5;cursor:default}
+  label.sub{color:var(--dim);font-family:var(--mono);font-size:12px;display:flex;
+    align-items:center;gap:6px}
+
+  .boards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}
+  .board{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:18px 20px}
+  .board h2{margin:0;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
+    font-family:var(--mono)}
+  .board .tool{font-family:var(--mono);font-size:12px;color:var(--dim);margin-top:2px}
+  .status{font-family:var(--mono);font-weight:700;font-size:30px;margin:12px 0 4px;letter-spacing:.02em}
+  .status.catch{color:var(--good)} .status.evaded{color:var(--bad)} .status.hold{color:var(--good)}
+  .status.warn{color:var(--amber)}
+  .board .note{color:var(--dim);font-size:13px;min-height:18px}
+
+  .grid{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;margin-top:16px}
+  .panel{border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow:hidden}
+  .panel .cap{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--dim);padding:12px 16px;border-bottom:1px solid var(--line);display:flex;
+    justify-content:space-between;align-items:center}
+  #stream{margin:0;padding:14px 16px;font-family:var(--mono);font-size:12.5px;line-height:1.55;
+    white-space:pre-wrap;word-break:break-word;height:340px;overflow:auto;color:var(--ink)}
+  #stream .note{color:var(--amber)}
+  #stream .cursor{color:var(--accent)}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line)}
+  thead th{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--dim)}
+  tbody{display:block;max-height:300px;overflow:auto}
+  thead,tbody tr{display:table;width:100%;table-layout:fixed}
+  .pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;white-space:nowrap}
+  .match{color:var(--bad);background:rgba(224,119,79,.14)}
+  .clean{color:var(--good);background:rgba(55,184,126,.14)}
+  .fired{color:var(--good);background:rgba(55,184,126,.14)}
+  .silent{color:var(--amber);background:rgba(224,178,75,.14)}
+  .by-llm{color:var(--accent)} .by-offline{color:var(--dim)} .by-seed{color:var(--dim)}
+
+  #summary{margin-top:16px;border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:0 12px 12px 0;background:var(--panel2);padding:16px 20px;display:none}
+  #summary.show{display:block}
+  #summary b{color:var(--ink)}
+  #summary .line{font-size:15px;margin:4px 0}
+  .verify{font-family:var(--mono);font-size:11.5px;color:var(--dim);margin-top:10px;word-break:break-all}
 </style>
 
-<h1>HY<span style="color:#35b8d6">D</span>RA</h1>
-<p>Adversarial evasion lab — signatures fall, behavior holds.</p>
-<button id="run">▶ Run</button>
-<table id="rows"><thead><tr>
-  <th>iter</th><th>track</th><th>yara</th><th>falco</th><th>behavior</th>
-</tr></thead><tbody></tbody></table>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="word">HY<b>D</b>RA</div>
+      <div class="tag">adversarial evasion lab — kill one signature, it grows a new head</div>
+    </div>
+    <div class="controls">
+      <label class="sub">iters <input id="iters" type="number" min="1" max="20" value="6"></label>
+      <label class="sub"><input id="fake" type="checkbox"> fake</label>
+      <button id="replay">Replay</button>
+      <button id="run" class="go">▶ Run</button>
+    </div>
+  </header>
+
+  <div class="boards">
+    <div class="board">
+      <h2>Signature detector</h2>
+      <div class="tool">YARA · rule seeded from generation 0</div>
+      <div class="status catch" id="sigStatus">—</div>
+      <div class="note" id="sigNote">waiting</div>
+    </div>
+    <div class="board">
+      <h2>Behavioral detector</h2>
+      <div class="tool">ransomware-class rule · real syscalls</div>
+      <div class="status hold" id="behStatus">—</div>
+      <div class="note" id="behNote">waiting</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <div class="cap"><span>AI rewriting the malware</span><span id="streamMeta"></span></div>
+      <pre id="stream"></pre>
+      <div class="verify" id="verify"></div>
+    </div>
+    <div class="panel">
+      <div class="cap">Iterations</div>
+      <table>
+        <thead><tr><th style="width:44px">#</th><th>step</th><th>by</th><th>YARA</th><th>behavior</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="summary"></div>
+</div>
 
 <script>
-  const tbody = document.querySelector("#rows tbody");
-  document.querySelector("#run").addEventListener("click", () => {
-    tbody.innerHTML = "";
-    const es = new EventSource("/run");
-    es.addEventListener("verdict", (e) => {
-      const r = JSON.parse(e.data);
-      const tr = document.createElement("tr");
-      tr.innerHTML =
-        `<td>${r.iteration}</td><td>${r.track}</td>` +
-        `<td class="${r.yara === "CLEAN" ? "sig-clean" : "sig-match"}">${r.yara}</td>` +
-        `<td>${r.falco}</td><td>${r.behavior_preserved}</td>`;
-      tbody.appendChild(tr);
-    });
-    es.addEventListener("summary", () => es.close());
-  });
+const $ = s => document.querySelector(s);
+const TRACK = {0:"baseline",1:"signature",2:"behavior",3:"finale"};
+let es, curKey = null, sigEvaded = false;
+
+function reset(){
+  if(es) es.close();
+  curKey = null; sigEvaded = false;
+  $("#stream").textContent = ""; $("#rows").innerHTML = "";
+  $("#streamMeta").textContent = ""; $("#verify").textContent = "";
+  $("#summary").classList.remove("show");
+  setBoard("sig","catch","CATCHING","holding the line");
+  setBoard("beh","hold","HOLDING","holding the line");
+  $("#run").disabled = true; $("#replay").disabled = true;
+}
+function done(){ $("#run").disabled = false; $("#replay").disabled = false; }
+
+function setBoard(which,cls,text,note){
+  const s = $("#"+which+"Status"); s.className = "status "+cls; s.textContent = text;
+  $("#"+which+"Note").textContent = note;
+}
+
+function pill(v){
+  const c = {MATCH:"match",CLEAN:"clean",FIRED:"fired",SILENT:"silent"}[v] || "";
+  return `<span class="pill ${c}">${v}</span>`;
+}
+
+function onToken(d){
+  const key = d.track+"/"+d.iteration;
+  if(key !== curKey){
+    curKey = key;
+    $("#stream").textContent = "";
+    $("#streamMeta").textContent = `${TRACK[d.track]} · iteration ${d.iteration}`;
+  }
+  const el = $("#stream");
+  el.textContent += d.text;
+  el.scrollTop = el.scrollHeight;
+}
+function onNote(d){
+  const el = $("#stream");
+  const s = document.createElement("span");
+  s.className = "note"; s.textContent = `\n// ↻ ${d.text}\n`;
+  el.appendChild(s); el.scrollTop = el.scrollHeight;
+}
+function onDone(d){
+  if(d.provenance !== "llm"){          // mutator/finale: show the source too
+    const key = d.track+"/"+d.iteration;
+    if(key !== curKey){ curKey = key; $("#stream").textContent = d.source || ""; }
+    $("#streamMeta").textContent = `${TRACK[d.track]} · iteration ${d.iteration} · ${d.provenance}`;
+  }
+  if(d.sha256) $("#verify").textContent = "sha256(binary): " + d.sha256;
+}
+
+function onVerdict(d){
+  const tr = document.createElement("tr");
+  const by = `<span class="by-${d.provenance}">${d.provenance}</span>`;
+  tr.innerHTML = `<td>${d.iteration}</td><td>${TRACK[d.track]}</td><td>${by}</td>`+
+                 `<td>${pill(d.yara)}</td><td>${pill(d.falco)}</td>`;
+  $("#rows").appendChild(tr);
+  const body = tr.parentElement; body.scrollTop = body.scrollHeight;
+
+  if(d.track===1 && d.yara==="CLEAN" && d.behavior_preserved && !sigEvaded){
+    sigEvaded = true;
+    setBoard("sig","evaded","EVADED",`blind after ${d.iteration} mutation${d.iteration>1?"s":""} — behavior unchanged`);
+  }
+  if(d.track===3){
+    if(d.falco==="SILENT" && !d.behavior_preserved)
+      setBoard("beh","warn","HOLDING*","* only evaded by ceasing to be ransomware");
+  } else if(d.falco==="FIRED"){
+    setBoard("beh","hold","HOLDING","every mutation still caught");
+  }
+}
+
+function onSummary(d){
+  const s = $("#summary");
+  s.innerHTML =
+    `<div class="line">Signature: <b>evaded after ${d.iterations_to_evade_signature} mutation(s)</b> — bytes change, the rule dies.</div>`+
+    `<div class="line">Behavior: <b>${d.behavioral_evasions_while_behavior_preserved} evasions</b> while the behavior was preserved — the rule held every time.</div>`+
+    `<div class="line">The AI could only slip past the behavioral rule by <b>${d.behavioral_evasion_required_breaking_behavior ? "abandoning the behavior" : "—"}</b>. Signatures die; behavior tells the truth.</div>`;
+  s.classList.add("show");
+}
+
+function wire(src){
+  src.addEventListener("baseline", e=>{ const d=JSON.parse(e.data);
+    $("#verify").textContent = "sha256(binary): " + d.sha256; });
+  src.addEventListener("rewrite_token", e=>onToken(JSON.parse(e.data)));
+  src.addEventListener("rewrite_note",  e=>onNote(JSON.parse(e.data)));
+  src.addEventListener("rewrite_done",  e=>onDone(JSON.parse(e.data)));
+  src.addEventListener("verdict",       e=>onVerdict(JSON.parse(e.data)));
+  src.addEventListener("summary",       e=>{ onSummary(JSON.parse(e.data)); src.close(); done(); });
+  src.addEventListener("error",         e=>{ setBoard("sig","warn","ERROR",JSON.parse(e.data).message); src.close(); done(); });
+  src.onerror = ()=>{ done(); };
+}
+
+$("#run").addEventListener("click", ()=>{
+  reset();
+  const iters = $("#iters").value || 6;
+  const fake = $("#fake").checked ? 1 : 0;
+  es = new EventSource(`/run?iterations=${iters}&fake=${fake}&record=1`);
+  wire(es);
+});
+$("#replay").addEventListener("click", ()=>{
+  reset(); es = new EventSource("/replay"); wire(es);
+});
+done();
 </script>
+</html>
