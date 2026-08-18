@@ -22,17 +22,32 @@ in a closed loop, and we measure how each detector holds up.
 
 ## Contributing
 
-- Branch before editing: `feat/…`, `fix/…`, `chore/…`. Do not commit to `main`
-  directly.
+- Push directly to `main`. Keep commits small and focused so `main` always
+  builds; pull before you push.
 - Conventional commits: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`.
-- Never push without explicit approval.
+- Agree interfaces first, then code against the stubbed contracts so several
+  people can work in parallel without collisions (see Working in parallel).
 - Python, standard library first. Type hints, small focused modules, a logger
   (not `print`) in committed code.
 - Validate input at boundaries (LLM output, subprocess results, arena
   observations). Fail closed on anything that violates a safety invariant.
-- Run the safety test before any change touching the arena or the sample; it must
-  pass. Keep `ARCHITECTURE.md` in sync when you change an interface (SSE contract,
-  component paths, metrics).
+- Run the safety test before you push anything touching the arena or the sample;
+  it must pass. Keep `ARCHITECTURE.md` in sync when you change an interface (SSE
+  contract, component paths, metrics).
+
+## Working in parallel
+
+Freeze the interfaces first — the arena observation shape (ARCHITECTURE.md §7),
+the detector functions, `results.json` (§10), and the SSE contract (§11) — commit
+them as stubs that return fake data, then each person owns a lane and codes
+against those stubs:
+
+| Lane | Owns | Files |
+|---|---|---|
+| 1 · Sandbox | arena container, seed sample, safety test | `sample/`, `arena/` |
+| 2 · Detection | YARA + Falco detectors and rules | `detectors/` |
+| 3 · Adversary | LLM rewriter (Ollama) + fallback mutator | `adversary/` |
+| 4 · Integration & demo | referee loop, gate, metrics, server, dashboard; owns the shared contracts | `referee/`, `server.py`, `ui/` |
 
 ## Layout and run
 
