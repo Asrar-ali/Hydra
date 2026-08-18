@@ -49,8 +49,8 @@ def run_detailed(source: str, *, timeout: float = 30.0) -> tuple[ArenaObservatio
 
     name = "hydra_run_" + os.urandom(6).hex()
     artdir = tempfile.mkdtemp(prefix="hydra_art_")
-    empty = {"syscalls": [], "files_written": 0, "mean_entropy": 0.0,
-             "write_paths": [], "network_attempts": 0}
+    empty = {"syscalls": [], "files_written": 0, "encrypted_files": 0,
+             "mean_entropy": 0.0, "write_paths": [], "network_attempts": 0}
     try:
         cmd = [
             "docker", "run", "--name", name,
@@ -88,8 +88,8 @@ def _read(artdir: str, fname: str, binary: bool = False):
 
 
 def _build_observation(docker_out: str, artdir: str) -> tuple[ArenaObservation, dict]:
-    empty = {"syscalls": [], "files_written": 0, "mean_entropy": 0.0,
-             "write_paths": [], "network_attempts": 0}
+    empty = {"syscalls": [], "files_written": 0, "encrypted_files": 0,
+             "mean_entropy": 0.0, "write_paths": [], "network_attempts": 0}
 
     if "COMPILE_FAILED" in docker_out:
         err = (_read(artdir, "compile.err") or "compile failed").strip()
@@ -112,8 +112,9 @@ def _build_observation(docker_out: str, artdir: str) -> tuple[ArenaObservation, 
 
     obs = ArenaObservation(
         compiled=True, binary_sha256=sha, binary_bytes=binary,
-        files_written=report["files_written"], mean_entropy=report["mean_entropy"],
-        syscalls=report["syscalls"], stdout=stdout, exit_code=exit_code, error=error,
+        files_written=report["files_written"], encrypted_files=report["encrypted_files"],
+        mean_entropy=report["mean_entropy"], syscalls=report["syscalls"],
+        stdout=stdout, exit_code=exit_code, error=error,
     )
     return obs, report
 
@@ -129,12 +130,13 @@ def _fake_run(source: str) -> ArenaObservation:
     if disabled:
         return ArenaObservation(
             compiled=True, binary_sha256=sha, binary_bytes=body,
-            files_written=0, mean_entropy=0.0,
+            files_written=0, encrypted_files=0, mean_entropy=0.0,
             syscalls=["openat", "write"], stdout="hydra: behavior disabled", exit_code=0,
         )
+    n = max(FILES_K + 14, 24)
     return ArenaObservation(
         compiled=True, binary_sha256=sha, binary_bytes=body,
-        files_written=max(FILES_K + 14, 24), mean_entropy=max(ENTROPY_H + 0.9, 7.9),
+        files_written=n, encrypted_files=n, mean_entropy=max(ENTROPY_H + 0.9, 7.9),
         syscalls=["openat", "write", "read", "unlink"],
         stdout="hydra: rewrote files, reversible, exiting clean", exit_code=0,
     )

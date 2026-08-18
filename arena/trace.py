@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 
+from common.config import ENTROPY_H
 from common.entropy import shannon_entropy
 
 # strace -f prefixes each line with the PID, either "[pid 16] " or a bare "16  ".
@@ -77,9 +78,13 @@ def parse(trace_text: str) -> dict:
 
     paths = sorted(written)
     mean = sum(last_entropy[p] for p in paths) / len(paths) if paths else 0.0
+    # "encrypted" files: those whose final written content is high-entropy — the
+    # bulk-encryption signal, robust to a few incidental high-entropy writes.
+    encrypted = sum(1 for p in paths if last_entropy[p] >= ENTROPY_H)
     return {
         "syscalls": sorted(syscalls),
         "files_written": len(paths),
+        "encrypted_files": encrypted,
         "mean_entropy": mean,
         "write_paths": paths,
         "network_attempts": network,

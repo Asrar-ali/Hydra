@@ -25,6 +25,7 @@ class ArenaObservation:
     binary_sha256: Optional[str] = None
     binary_bytes: Optional[bytes] = None       # None in fake mode / on compile failure
     files_written: int = 0
+    encrypted_files: int = 0                    # distinct files whose final write is high-entropy
     mean_entropy: float = 0.0                   # bits/byte, 0..8
     syscalls: list[str] = field(default_factory=list)
     stdout: str = ""

@@ -13,9 +13,9 @@
     A process rewrites many files in a short window with high-entropy content,
     the signature of bulk encryption. Benign in this lab; malicious in the wild.
   condition: >
-    hydra.files_rewritten >= 10 and hydra.mean_write_entropy >= 7.0
+    hydra.encrypted_files >= 10
   output: >
-    Ransomware-shaped activity (files=%hydra.files_rewritten
-    entropy=%hydra.mean_write_entropy proc=%proc.name)
+    Ransomware-shaped activity (encrypted_files=%hydra.encrypted_files
+    files_written=%hydra.files_written proc=%proc.name)
   priority: WARNING
   tags: [hydra, ransomware, behavior]
