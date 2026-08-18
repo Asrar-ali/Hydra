@@ -28,6 +28,17 @@ class TestControl(unittest.TestCase):
         self.assertEqual(falco_detector.evaluate(obs), "SILENT")
         self.assertFalse(behavior_preserved(obs))
 
+    def test_promptlock_benign_control_does_not_fire(self):
+        from arena.run import run_detailed
+
+        with open("sample/benign_control.py", encoding="utf-8") as fh:
+            obs, _ = run_detailed(fh.read(), mode="promptlock")
+        self.assertEqual(obs.exit_code, 0, obs.error)
+        self.assertGreaterEqual(obs.files_written, 10)     # it DID write many files
+        self.assertEqual(obs.encrypted_files, 0)           # but encrypted none
+        self.assertEqual(falco_detector.evaluate(obs), "SILENT")
+        self.assertFalse(behavior_preserved(obs))
+
 
 if __name__ == "__main__":
     unittest.main()
