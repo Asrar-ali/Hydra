@@ -1,9 +1,75 @@
 <!doctype html>
 <html lang="en">
+<html lang="en">
 <meta charset="utf-8">
 <title>Hydra</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+  :root{
+    --bg:#0b1117; --panel:#121a22; --panel2:#0f161d; --line:#24313c;
+    --ink:#dce6ee; --dim:#6c7e8c; --accent:#35b8d6;
+    --good:#37b87e; --bad:#e0774f; --amber:#e0b24b;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  .wrap{max-width:1200px;margin:0 auto;padding:22px 22px 60px}
+
+  header{display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+    border-bottom:1px solid var(--line);padding-bottom:16px}
+  .word{font-family:var(--mono);font-weight:700;font-size:34px;letter-spacing:.14em}
+  .word b{color:var(--accent)}
+  .tag{color:var(--dim);font-family:var(--mono);font-size:12px;letter-spacing:.06em}
+  .controls{margin-left:auto;display:flex;align-items:center;gap:10px}
+  input[type=number]{width:56px;background:var(--panel2);color:var(--ink);
+    border:1px solid var(--line);border-radius:7px;padding:7px;font:inherit}
+  button{font:inherit;font-weight:600;padding:9px 18px;border-radius:8px;cursor:pointer;
+    border:1px solid var(--line);background:var(--panel);color:var(--ink)}
+  button.go{background:var(--accent);color:#04222b;border-color:var(--accent)}
+  button:disabled{opacity:.5;cursor:default}
+  label.sub{color:var(--dim);font-family:var(--mono);font-size:12px;display:flex;
+    align-items:center;gap:6px}
+
+  .boards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}
+  .board{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:18px 20px}
+  .board h2{margin:0;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
+    font-family:var(--mono)}
+  .board .tool{font-family:var(--mono);font-size:12px;color:var(--dim);margin-top:2px}
+  .status{font-family:var(--mono);font-weight:700;font-size:30px;margin:12px 0 4px;letter-spacing:.02em}
+  .status.catch{color:var(--good)} .status.evaded{color:var(--bad)} .status.hold{color:var(--good)}
+  .status.warn{color:var(--amber)}
+  .board .note{color:var(--dim);font-size:13px;min-height:18px}
+
+  .grid{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;margin-top:16px}
+  .panel{border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow:hidden}
+  .panel .cap{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--dim);padding:12px 16px;border-bottom:1px solid var(--line);display:flex;
+    justify-content:space-between;align-items:center}
+  #stream{margin:0;padding:14px 16px;font-family:var(--mono);font-size:12.5px;line-height:1.55;
+    white-space:pre-wrap;word-break:break-word;height:340px;overflow:auto;color:var(--ink)}
+  #stream .note{color:var(--amber)}
+  #stream .cursor{color:var(--accent)}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line)}
+  thead th{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--dim)}
+  tbody{display:block;max-height:300px;overflow:auto}
+  thead,tbody tr{display:table;width:100%;table-layout:fixed}
+  .pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;white-space:nowrap}
+  .match{color:var(--bad);background:rgba(224,119,79,.14)}
+  .clean{color:var(--good);background:rgba(55,184,126,.14)}
+  .fired{color:var(--good);background:rgba(55,184,126,.14)}
+  .silent{color:var(--amber);background:rgba(224,178,75,.14)}
+  .by-llm{color:var(--accent)} .by-offline{color:var(--dim)} .by-seed{color:var(--dim)}
+
+  #summary{margin-top:16px;border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:0 12px 12px 0;background:var(--panel2);padding:16px 20px;display:none}
+  #summary.show{display:block}
+  #summary b{color:var(--ink)}
+  #summary .line{font-size:15px;margin:4px 0}
+  .verify{font-family:var(--mono);font-size:11.5px;color:var(--dim);margin-top:10px;word-break:break-all}
   :root{
     --bg:#0b1117; --panel:#121a22; --panel2:#0f161d; --line:#24313c;
     --ink:#dce6ee; --dim:#6c7e8c; --accent:#35b8d6;
