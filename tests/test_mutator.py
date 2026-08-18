@@ -19,10 +19,20 @@ class TestMutate(unittest.TestCase):
         self.assertNotEqual(mutator.mutate(self.seed, 1), self.seed)
 
     def test_rewrites_the_signature_marker(self):
-        # The build-specific marker the signature keys on must change.
+        # The build-specific strings the family signature keys on must change:
+        # the marker, temp-dir name, status message and filename format are all
+        # rewritten to defeat the multi-indicator rule.
         out = mutator.mutate(self.seed, 1)
         self.assertNotIn("HYDRA-SIGNATURE-000", out)
-        self.assertIn("HYDRA-SIGNATURE-", out)  # still a marker, just a different one
+        self.assertNotIn("hydra_work", out)
+        self.assertNotIn("file_%02d.dat", out)
+
+    def test_preserves_behavior_critical_pieces(self):
+        # Byte features change, but the /tmp sandbox and the %02d format specifier
+        # (behavior) must survive, or the sample would break or escape.
+        out = mutator.mutate(self.seed, 7)
+        self.assertIn("/tmp/", out)
+        self.assertIn("%02d", out)
 
     def test_deterministic_for_same_iteration(self):
         self.assertEqual(mutator.mutate(self.seed, 3), mutator.mutate(self.seed, 3))
