@@ -32,7 +32,15 @@ def mutate(source: str, iteration: int) -> str:
 
 
 def disable_behavior(source: str) -> str:
-    """Finale only: mark the source as de-fanged so the arena reports a
-    non-ransomware run. The REAL variant would actually remove the file-rewrite
-    loop; here we flag it so the fake arena can respond. See ARCHITECTURE.md §5."""
-    return f"/* {BEHAVIOR_DISABLED_MARK} */\n{source}"
+    """Finale only. The one way to evade the behavioral rule is to stop doing the
+    behavior, so this returns a genuinely de-fanged program — no file rewrites.
+    Both arenas agree it is not ransomware: the real arena sees zero file writes,
+    and the fake arena keys on the marker comment. See ARCHITECTURE.md §5."""
+    return (
+        f"/* {BEHAVIOR_DISABLED_MARK} :: behavior removed to evade the behavioral rule */\n"
+        "#include <stdio.h>\n"
+        "int main(void) {\n"
+        '    printf("hydra: neutered variant — no file activity\\n");\n'
+        "    return 0;\n"
+        "}\n"
+    )
