@@ -10,11 +10,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
         libc6-dev \
         strace \
+        python3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /work
 COPY entrypoint.sh /usr/local/bin/hydra-run
-RUN chmod +x /usr/local/bin/hydra-run
+COPY entrypoint_script.sh /usr/local/bin/hydra-run-script
+RUN chmod +x /usr/local/bin/hydra-run /usr/local/bin/hydra-run-script
 
-# The candidate source is provided at run time; the entrypoint compiles + traces.
+# The candidate source is provided at run time; the entrypoint compiles + traces
+# (metamorphic mode, gcc). arena/run.py overrides --entrypoint to hydra-run-script
+# for promptlock mode (runs a generated Python script under strace, no compile).
 ENTRYPOINT ["/usr/local/bin/hydra-run"]

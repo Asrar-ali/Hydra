@@ -32,18 +32,25 @@ IMAGE = os.environ.get("HYDRA_ARENA_IMAGE", "hydra-arena")
 ALLOWED_WRITE_PREFIXES = ("/tmp/",)
 
 
-def run(source: str, *, fake: bool | None = None, timeout: float = 30.0) -> ArenaObservation:
+def run(source: str, *, fake: bool | None = None, timeout: float = 30.0,
+        mode: str = "metamorphic") -> ArenaObservation:
     if fake is None:
         fake = os.environ.get("HYDRA_FAKE") == "1"
     if fake:
         return _fake_run(source)
-    obs, _report = run_detailed(source, timeout=timeout)
+    obs, _report = run_detailed(source, timeout=timeout, mode=mode)
     return obs
 
 
-def run_detailed(source: str, *, timeout: float = 30.0) -> tuple[ArenaObservation, dict]:
+def run_detailed(source: str, *, timeout: float = 30.0,
+                  mode: str = "metamorphic") -> tuple[ArenaObservation, dict]:
     """Run in the container and return (observation, raw trace report). The
-    report is used by the safety test to assert the sandbox invariants."""
+    report is used by the safety test to assert the sandbox invariants.
+
+    ``mode``: "metamorphic" (default) compiles ``source`` as C and runs the
+    binary. "promptlock" runs ``source`` directly as a Python script (no
+    compile step) — the runtime-generated-payload mode, ARCHITECTURE.md §9.3.
+    """
     if shutil.which("docker") is None:
         raise RuntimeError("docker not found; start Colima, or run with HYDRA_FAKE=1")
 
@@ -61,8 +68,10 @@ def run_detailed(source: str, *, timeout: float = 30.0) -> tuple[ArenaObservatio
             "-v", "/work", "--tmpfs", "/tmp:exec,size=64m",
             "--memory=256m", "--pids-limit=256", "--cpus=1",
             "--cap-add=SYS_PTRACE",
-            "-i", IMAGE,
         ]
+        if mode == "promptlock":
+            cmd += ["--entrypoint", "/usr/local/bin/hydra-run-script"]
+        cmd += ["-i", IMAGE]
         try:
             proc = subprocess.run(cmd, input=source.encode(), capture_output=True, timeout=timeout)
         except subprocess.TimeoutExpired:
