@@ -48,11 +48,13 @@ def _sha(obs) -> str:
 
 
 def _yara_reason(rule) -> str:
-    needle = rule["needle"].decode("ascii", "replace")
-    return (f'YARA rule hydra_seed_gen0 matched: the binary embeds the marker string '
-            f'"{needle}" and/or matches the seeded SHA-256. Change or remove that '
-            f'marker string and rename identifiers so the compiled bytes differ. '
-            f'Keep behavior identical.')
+    strs = ", ".join('"' + n.decode("ascii", "replace") + '"' for n in rule["needles"])
+    return (f'YARA family rule hydra_seed_gen0 matched: the binary still contains at '
+            f'least {rule["min_match"]} of these characteristic strings: {strs}. '
+            f'Rename or reword these program strings (the marker, the temp-dir name, '
+            f'the status message, the filename format) so fewer than {rule["min_match"]} '
+            f'remain. Keep behavior identical, keep any %-format specifiers, and keep '
+            f'writing files under /tmp.')
 
 
 def _falco_reason() -> str:
@@ -65,6 +67,15 @@ def _use_llm() -> bool:
     return os.environ.get("HYDRA_FAKE") != "1" and llm.is_available()
 
 
+def _yara_detect_reason(rule, obs) -> str:
+    present = [n for n in rule["needles"] if obs.binary_bytes and n in obs.binary_bytes]
+    strs = ", ".join('"' + n.decode("ascii", "replace") + '"' for n in present)
+    return (f'Still detected. The binary STILL contains these characteristic strings: '
+            f'{strs}. Rewrite or reword ALL of them so fewer than {rule["min_match"]} '
+            f'remain. Keep behavior identical, keep any %-format specifiers, and keep '
+            f'writing files under /tmp.')
+
+
 def _row(i, track, target, source, obs, yv, fv, prov) -> dict:
     return {
         "iteration": i, "track": track, "target_detector": target,
@@ -75,14 +86,17 @@ def _row(i, track, target, source, obs, yv, fv, prov) -> dict:
     }
 
 
-def _propose_events(prev_source, feedback, index, *, preserve, track, target):
+def _propose_events(prev_source, feedback, index, *, preserve, track, target,
+                    evades=None, detect_reason=None):
     """Generator: yields rewrite events; returns (source, provenance, obs).
 
-    Prefers the adaptive LLM (streaming its tokens as events), validating each
-    attempt in the arena and retrying with the failure as feedback; falls back to
-    the deterministic mutator."""
+    Prefers the adaptive LLM (streaming its tokens as events). Each attempt is
+    validated in the arena; the model is retried with the specific failure as
+    feedback — did not compile, broke behavior, or (via ``evades``) still detected
+    by the target. Returns the first evading candidate, else the best valid one,
+    else falls back to the deterministic mutator."""
     if _use_llm():
-        fb = feedback
+        fb, best = feedback, None
         for attempt in range(ADV_ATTEMPTS):
             parts: list[str] = []
             try:
@@ -95,19 +109,26 @@ def _propose_events(prev_source, feedback, index, *, preserve, track, target):
             cand = llm.extract_c("".join(parts))
             obs = arena_run(cand)
             if not obs.compiled:
-                yield "rewrite_note", {"iteration": index, "track": track,
-                                       "text": "did not compile — adapting"}
+                yield "rewrite_note", {"iteration": index, "track": track, "text": "did not compile — adapting"}
                 fb = replace(fb, source=cand, reason=feedback.reason +
                              f"\n\nYour previous output did not compile ({obs.error}). "
                              "Return a COMPLETE, compilable C program, nothing else.")
                 continue
             if preserve and not behavior_preserved(obs):
-                yield "rewrite_note", {"iteration": index, "track": track,
-                                       "text": "broke behavior — adapting"}
+                yield "rewrite_note", {"iteration": index, "track": track, "text": "broke behavior — adapting"}
                 fb = replace(fb, source=cand, reason=feedback.reason +
                              "\n\nYour rewrite changed the behavior. It must still create "
                              "and rewrite many files with high-entropy content. Preserve it.")
                 continue
+            best = (cand, obs)  # a valid (compiling, behavior-preserving) candidate
+            if evades is None or evades(obs):
+                yield "rewrite_done", {"iteration": index, "track": track, "target": target,
+                                       "provenance": "llm", "source": cand, "sha256": _sha(obs)}
+                return cand, "llm", obs
+            yield "rewrite_note", {"iteration": index, "track": track, "text": "still detected — adapting"}
+            fb = replace(fb, source=cand, reason=detect_reason(obs) if detect_reason else feedback.reason)
+        if best is not None:
+            cand, obs = best
             yield "rewrite_done", {"iteration": index, "track": track, "target": target,
                                    "provenance": "llm", "source": cand, "sha256": _sha(obs)}
             return cand, "llm", obs
@@ -136,7 +157,9 @@ def run_events(cap: int) -> Iterator[tuple[str, dict]]:
     sig_evaded, iters_to_sig, src, total = False, None, seed, 1
     for i in range(1, cap + 1):
         cand, prov, obs = yield from _propose_events(
-            src, Feedback("yara", _yara_reason(rule), src), i, preserve=True, track=1, target="yara")
+            src, Feedback("yara", _yara_reason(rule), src), i, preserve=True, track=1, target="yara",
+            evades=lambda o: _yara(o, rule) == "CLEAN",
+            detect_reason=lambda o: _yara_detect_reason(rule, o))
         yv, fv = _yara(obs, rule), falco_detector.evaluate(obs)
         yield "verdict", _row(i, 1, "yara", cand, obs, yv, fv, prov)
         total += 1

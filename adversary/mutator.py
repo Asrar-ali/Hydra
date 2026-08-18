@@ -20,15 +20,20 @@ log = get_logger("mutator")
 
 provenance: Provenance = "offline"
 
-_MARKER = re.compile(r"HYDRA-SIGNATURE-\d{3}")
+_MARKER = re.compile(r'"HYDRA-SIGNATURE-\d{3}"')
 
 
 def mutate(source: str, iteration: int) -> str:
-    """Change the build-specific marker (defeats the signature) and inject a
-    unique junk comment (changes bytes). Behavior is untouched."""
-    new_tag = f"HYDRA-SIGNATURE-{(iteration * 37) % 1000:03d}"
-    mutated = _MARKER.sub(new_tag, source)
-    return f"/* hydra variant {iteration} :: bytes differ, behavior identical */\n{mutated}"
+    """Rewrite the characteristic strings the family signature keys on — the
+    marker, the temp-dir name, the status message, the filename format — so fewer
+    than the rule's threshold remain, while preserving behavior (format specifiers
+    and the /tmp sandbox are kept). Deterministic fallback for the LLM."""
+    h = f"{(iteration * 2654435761) & 0xFFFF:04x}"
+    s = _MARKER.sub(f'"MK{h}-{iteration:03d}"', source)          # marker
+    s = s.replace("hydra_work", f"wk{h}")                        # temp-dir name (keeps /tmp + _XXXXXX)
+    s = s.replace("reversible, exiting clean", f"ok {h} done")   # status message
+    s = s.replace("file_%02d.dat", f"b{h}_%02d.bin")             # filename format (keeps %02d)
+    return f"/* hydra variant {iteration} :: strings rewritten, behavior identical */\n{s}"
 
 
 def disable_behavior(source: str) -> str:

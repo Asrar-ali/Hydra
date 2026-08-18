@@ -1,14 +1,15 @@
-"""Signature detector — real YARA.
+"""Signature detector — real YARA, multi-indicator family rule.
 
-At baseline we generate a YARA rule seeded from generation 0's compiled binary:
-its exact SHA-256 (a hash blocklist entry) OR a build-specific string it embeds
-(the marker an analyst would sign). We then run the ``yara`` CLI against each
-candidate's compiled bytes. Every mutation changes both the hash and the marker,
-so the rule matches exactly generation 0 — the intended failure of signature
-detection under mutation, shown with the standard tool. See ARCHITECTURE.md §9.1.
+A real analyst does not sign a single label; they write a family rule keyed on
+several characteristic artifacts and fire when enough of them are present. We
+seed such a rule from generation 0's compiled binary — its exact SHA-256 plus the
+characteristic strings it embeds (the marker, the temp-dir name, the status
+message, the filename format) — and match when at least ``MIN_MATCH`` of the
+strings appear. To evade, the adversary must rewrite MOST of those artifacts while
+keeping behavior identical: a substantive change to the program's fingerprint,
+not a one-line rename. See ARCHITECTURE.md §9.1.
 
-If the ``yara`` binary is not installed, a pure-Python fallback keeps the pipeline
-working (same MATCH/CLEAN semantics).
+If ``yara`` is not installed, a pure-Python fallback keeps the same semantics.
 
 Contract:
     build_rule(seed_bytes: bytes) -> dict   # writes detectors/rules/hydra.yar
@@ -18,7 +19,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
 import shutil
 import subprocess
 import tempfile
@@ -32,8 +32,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RULES_DIR = os.path.join(HERE, "rules")
 RULE_PATH = os.path.join(RULES_DIR, "hydra.yar")
 
-# The build-specific marker generation 0 embeds; the adversary rewrites it.
-_MARKER = re.compile(rb"HYDRA-SIGNATURE-\d{3}")
+# Characteristic strings generation 0 embeds — the family's fingerprint. The
+# adversary must rewrite most of them (while preserving behavior) to evade.
+SIGNATURE_STRINGS = [
+    b"HYDRA-SIGNATURE-",           # the marker
+    b"hydra_work",                 # temp working-dir name
+    b"reversible, exiting clean",  # status message fragment
+    b"file_%02d.dat",              # per-file name format
+]
+MIN_MATCH = 2  # fire when >= this many are present (a family rule)
 
 
 def _yara_available() -> bool:
@@ -41,14 +48,14 @@ def _yara_available() -> bool:
 
 
 def build_rule(seed_bytes: bytes) -> dict:
-    """Seed a rule from generation 0 and write it to detectors/rules/hydra.yar."""
-    m = _MARKER.search(seed_bytes)
-    needle = m.group(0) if m else seed_bytes[:16]
+    """Seed a family rule from generation 0 and write detectors/rules/hydra.yar."""
+    needles = [s for s in SIGNATURE_STRINGS if s in seed_bytes] or [seed_bytes[:16]]
+    min_match = min(MIN_MATCH, len(needles))
     sha = hashlib.sha256(seed_bytes).hexdigest()
-    _write_rule(needle, sha)
-    log.info("seeded signature: marker=%r sha=%s… -> %s", needle, sha[:12],
-             os.path.relpath(RULE_PATH, os.path.dirname(HERE)))
-    return {"rule_path": RULE_PATH, "needle": needle, "sha256": sha}
+    _write_rule(needles, sha, min_match)
+    log.info("seeded family signature: %d strings, fire on >=%d  -> %s",
+             len(needles), min_match, os.path.relpath(RULE_PATH, os.path.dirname(HERE)))
+    return {"rule_path": RULE_PATH, "needles": needles, "min_match": min_match, "sha256": sha}
 
 
 def scan(data: bytes | None, rule: dict) -> SignatureVerdict:
@@ -61,27 +68,31 @@ def scan(data: bytes | None, rule: dict) -> SignatureVerdict:
 
 # --- rule generation -------------------------------------------------------
 
-def _write_rule(needle: bytes, sha: str) -> None:
+def _yara_escape(b: bytes) -> str:
+    return b.decode("ascii", "replace").replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _write_rule(needles: list[bytes], sha: str, min_match: int) -> None:
     os.makedirs(RULES_DIR, exist_ok=True)
-    marker = needle.decode("ascii", "replace")
-    with_hash = (
+    strings = "\n".join(f'        $s{i} = "{_yara_escape(n)}"' for i, n in enumerate(needles))
+    cond = f"hash.sha256(0, filesize) == \"{sha}\" or {min_match} of them"
+    rule = (
         'import "hash"\n\n'
         "rule hydra_seed_gen0\n{\n"
-        "    meta:\n"
-        '        description = "Signature seeded from Hydra generation 0"\n'
-        "    strings:\n"
-        f'        $marker = "{marker}"\n'
-        "    condition:\n"
-        f'        $marker or hash.sha256(0, filesize) == "{sha}"\n'
+        '    meta:\n        description = "Family signature seeded from Hydra generation 0"\n'
+        f"    strings:\n{strings}\n"
+        f"    condition:\n        {cond}\n"
         "}\n"
     )
-    _write(RULE_PATH, with_hash)
-    # The hash module may be absent in some builds; fall back to string-only.
+    _write(RULE_PATH, rule)
     if _yara_available() and not _compile_ok(RULE_PATH):
-        _write(RULE_PATH,
-               "rule hydra_seed_gen0\n{\n    strings:\n"
-               f'        $marker = "{marker}"\n'
-               "    condition:\n        $marker\n}\n")
+        # hash module unavailable in this build — drop it, keep the string family.
+        rule_no_hash = (
+            "rule hydra_seed_gen0\n{\n"
+            f"    strings:\n{strings}\n"
+            f"    condition:\n        {min_match} of them\n}}\n"
+        )
+        _write(RULE_PATH, rule_no_hash)
 
 
 def _write(path: str, text: str) -> None:
@@ -90,8 +101,7 @@ def _write(path: str, text: str) -> None:
 
 
 def _compile_ok(rule_path: str) -> bool:
-    r = subprocess.run(["yara", rule_path, os.devnull], capture_output=True)
-    return r.returncode == 0
+    return subprocess.run(["yara", rule_path, os.devnull], capture_output=True).returncode == 0
 
 
 # --- scanning --------------------------------------------------------------
@@ -110,6 +120,5 @@ def _yara_scan(data: bytes, rule_path: str) -> SignatureVerdict:
 def _fallback_scan(data: bytes, rule: dict) -> SignatureVerdict:
     if hashlib.sha256(data).hexdigest() == rule["sha256"]:
         return "MATCH"
-    if rule["needle"] and rule["needle"] in data:
-        return "MATCH"
-    return "CLEAN"
+    hits = sum(1 for n in rule["needles"] if n in data)
+    return "MATCH" if hits >= rule["min_match"] else "CLEAN"
