@@ -1,0 +1,21 @@
+# Behavioral rule (specification) — ransomware-shaped file activity.
+#
+# This is the Falco rule the behavioral detector implements. It keys on the
+# BEHAVIOR (bulk rewrite of files with high-entropy content), so byte-level
+# rewrites of the sample do not change its verdict. The thresholds mirror
+# common/config.py (FILES_K, ENTROPY_H) so the rule and the behavior-preservation
+# gate never drift. See ARCHITECTURE.md §9.2.
+#
+# NOTE: entropy is not a native Falco field; the real deployment feeds it in via
+# the strace-derived path (arena §8) or a Falco plugin. Kept here as the spec.
+- rule: Hydra Ransomware-Shaped File Rewrite
+  desc: >
+    A process rewrites many files in a short window with high-entropy content,
+    the signature of bulk encryption. Benign in this lab; malicious in the wild.
+  condition: >
+    hydra.files_rewritten >= 10 and hydra.mean_write_entropy >= 7.0
+  output: >
+    Ransomware-shaped activity (files=%hydra.files_rewritten
+    entropy=%hydra.mean_write_entropy proc=%proc.name)
+  priority: WARNING
+  tags: [hydra, ransomware, behavior]

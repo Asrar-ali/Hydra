@@ -1,0 +1,41 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Hydra</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; font: 14px ui-monospace, Menlo, monospace;
+         background: #0b1117; color: #dce6ee; padding: 24px; }
+  h1 { letter-spacing: .12em; }
+  .sig-clean { color: #37b87e; } .sig-match { color: #e0774f; }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #24313c; }
+  button { font: inherit; padding: 8px 16px; cursor: pointer; }
+  /* TODO(lane4): the real dashboard — streamed rewrite, diff, dual scoreboards,
+     verify-yourself panel. This is a minimal SSE client to prove the wiring. */
+</style>
+
+<h1>HY<span style="color:#35b8d6">D</span>RA</h1>
+<p>Adversarial evasion lab — signatures fall, behavior holds.</p>
+<button id="run">▶ Run</button>
+<table id="rows"><thead><tr>
+  <th>iter</th><th>track</th><th>yara</th><th>falco</th><th>behavior</th>
+</tr></thead><tbody></tbody></table>
+
+<script>
+  const tbody = document.querySelector("#rows tbody");
+  document.querySelector("#run").addEventListener("click", () => {
+    tbody.innerHTML = "";
+    const es = new EventSource("/run");
+    es.addEventListener("verdict", (e) => {
+      const r = JSON.parse(e.data);
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        `<td>${r.iteration}</td><td>${r.track}</td>` +
+        `<td class="${r.yara === "CLEAN" ? "sig-clean" : "sig-match"}">${r.yara}</td>` +
+        `<td>${r.falco}</td><td>${r.behavior_preserved}</td>`;
+      tbody.appendChild(tr);
+    });
+    es.addEventListener("summary", () => es.close());
+  });
+</script>

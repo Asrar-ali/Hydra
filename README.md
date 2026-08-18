@@ -1,0 +1,55 @@
+# Hydra
+
+**An adversarial evasion lab.** A local, security-tuned LLM rewrites a benign,
+ransomware-shaped program to try to slip past two real detectors — YARA
+(signature) and Falco (behavioral) — in a closed loop. We measure how each holds
+up. The result is a number, not a scripted reveal: the signature detector is
+evaded in a few iterations; the behavioral detector is not evaded at all while
+the sample still behaves like malware.
+
+> Kill one signature, it grows a new head.
+
+See **[ARCHITECTURE.md](ARCHITECTURE.md)** for the full design and
+**[CLAUDE.md](CLAUDE.md)** for safety rules and how to contribute.
+
+## Safety
+
+The sample is benign by construction: it only rewrites throwaway files it creates
+in its own sandbox, does no network or persistence, and reverses its own
+"encryption" before exiting. Mutated code runs only inside a throwaway,
+network-isolated container. Real malware is never executed. See ARCHITECTURE.md §6.
+
+## Quickstart
+
+Runs today with a fake arena, so you can see the whole loop with **no** container,
+model, or detector installed:
+
+```bash
+git clone https://github.com/Asrar-ali/Hydra.git && cd Hydra
+make run        # HYDRA_FAKE=1 — runs the loop, writes results.json, self-checks
+make test       # unit tests (stdlib unittest, no deps)
+make dashboard  # http://localhost:8000/  ->  ▶ Run
+```
+
+For the real pipeline: `make setup` (installs yara, pulls the model), then
+`make arena-build`, then run without `HYDRA_FAKE`.
+
+## Layout
+
+```
+common/       shared contracts, config, logging, entropy      (import from here)
+sample/       seed.c — the benign, ransomware-shaped sample    (Lane 1)
+arena/        throwaway-container compile + run + capture       (Lane 1)
+detectors/    yara (signature) + falco (behavioral) + rules     (Lane 2)
+adversary/    llm.py (Ollama) + mutator.py (fallback)           (Lane 3)
+referee/      loop.py + gate.py — the loop, the metrics         (Lane 4)
+server.py     HTTP + SSE dashboard server                       (Lane 4)
+ui/           index.html — SSE dashboard                         (Lane 4)
+tests/        unit tests
+```
+
+## Working on it
+
+Pick a lane (see the table in [CLAUDE.md](CLAUDE.md)). Everything talks through
+the contracts in `common/contracts.py`, so lanes can be built in parallel against
+the fake arena and wired to the real tools independently.

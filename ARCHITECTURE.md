@@ -290,20 +290,28 @@ path is identical live or replayed.
 ## 12. Repository layout
 
 ```
+common/contracts.py              shared data contracts (imported by every lane)
+common/config.py                 thresholds (K, H), iteration cap, model config
+common/logging.py                logger factory
+common/entropy.py                Shannon entropy helper
 sample/seed.c                    benign, ransomware-shaped seed source
+arena/run.py                     throwaway-container compile + run + capture (fake mode for now)
+arena/Dockerfile                 arena image (gcc + strace)
+arena/entrypoint.sh              in-container compile + strace + emit observation
+detectors/yara_detector.py       signature detector (YARA; python fallback until wired)
+detectors/falco_detector.py      behavioral detector (evaluates the class rule)
+detectors/hydra_ransomware.yaml  behavioral rule (spec)
+detectors/rules/                 generated YARA rules land here at runtime
 adversary/llm.py                 WhiteRabbitNeo (Ollama) adversary + feedback prompt
 adversary/mutator.py             deterministic mutator (Track-1 fallback)
-arena/run.py                     throwaway-container compile + run + capture
-arena/Dockerfile                 arena image (compiler, tracer)
-detectors/yara_detector.py       YARA wrapper
-detectors/rules/                 seeded rule + published rules used for validation
-detectors/falco_detector.py      Falco rule evaluation
-detectors/hydra_ransomware.yaml  behavioral rule
-referee/loop.py                  the adversarial loop, tracks, gate, metrics
+referee/loop.py                  the adversarial loop, tracks, metrics
+referee/gate.py                  behavior-preservation gate
 server.py                        HTTP + SSE server
 ui/index.html                    SSE dashboard
+tests/                           unit tests (stdlib unittest)
 validate/                        static real-malware rule validation (gated)
-results.json                     measured output
+Makefile                         run / test / dashboard / setup / arena-build
+results.json                     measured output (generated)
 .env.example                     environment template (no secrets)
 ```
 
