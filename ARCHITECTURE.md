@@ -298,7 +298,7 @@ sample/seed.c                    benign, ransomware-shaped seed source
 arena/run.py                     throwaway-container compile + run + capture (fake mode for now)
 arena/Dockerfile                 arena image (gcc + strace)
 arena/entrypoint.sh              in-container compile + strace + emit observation
-detectors/yara_detector.py       signature detector (YARA; python fallback until wired)
+detectors/yara_detector.py       signature detector (real YARA; python fallback if yara absent)
 detectors/falco_detector.py      behavioral detector (evaluates the class rule)
 detectors/hydra_ransomware.yaml  behavioral rule (spec)
 detectors/rules/                 generated YARA rules land here at runtime

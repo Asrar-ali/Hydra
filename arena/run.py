@@ -122,14 +122,18 @@ def _fake_run(source: str) -> ArenaObservation:
     """Deterministic stand-in so the loop runs without Docker. Reports the
     ransomware behavior unless the candidate was deliberately de-fanged."""
     disabled = BEHAVIOR_DISABLED_MARK in source
-    sha = hashlib.sha256(source.encode()).hexdigest()
+    # In fake mode we have no compiled ELF; stand in with the source bytes so the
+    # signature detector (which keys on the embedded marker) still works.
+    body = source.encode()
+    sha = hashlib.sha256(body).hexdigest()
     if disabled:
         return ArenaObservation(
-            compiled=True, binary_sha256=sha, files_written=0, mean_entropy=0.0,
+            compiled=True, binary_sha256=sha, binary_bytes=body,
+            files_written=0, mean_entropy=0.0,
             syscalls=["openat", "write"], stdout="hydra: behavior disabled", exit_code=0,
         )
     return ArenaObservation(
-        compiled=True, binary_sha256=sha,
+        compiled=True, binary_sha256=sha, binary_bytes=body,
         files_written=max(FILES_K + 14, 24), mean_entropy=max(ENTROPY_H + 0.9, 7.9),
         syscalls=["openat", "write", "read", "unlink"],
         stdout="hydra: rewrote files, reversible, exiting clean", exit_code=0,

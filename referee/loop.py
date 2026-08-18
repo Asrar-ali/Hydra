@@ -52,14 +52,22 @@ def _record(rows, *, iteration, track, target, source, obs, yv, fv, provenance):
     )
 
 
+def _yara(obs, rule) -> str:
+    """Scan the candidate's real compiled bytes (source bytes in fake mode)."""
+    return yara_detector.scan(obs.binary_bytes, rule)
+
+
 def run_loop(cap: int) -> dict:
     seed = _seed_source()
-    rule = yara_detector.build_rule(seed.encode())
     rows: list[IterationResult] = []
 
-    # Baseline: both detectors catch the seed.
+    # Baseline: compile the seed, seed the signature from its real bytes, and
+    # confirm both detectors catch it.
     base = arena_run(seed)
-    yv, fv = yara_detector.scan(seed.encode(), rule), falco_detector.evaluate(base)
+    if not base.binary_bytes:
+        raise RuntimeError(f"seed did not compile in the arena: {base.error}")
+    rule = yara_detector.build_rule(base.binary_bytes)
+    yv, fv = _yara(base, rule), falco_detector.evaluate(base)
     _record(rows, iteration=0, track=0, target=None, source=seed, obs=base,
             yv=yv, fv=fv, provenance="seed")
     log.info("baseline  yara=%s  falco=%s", yv, fv)
@@ -69,7 +77,7 @@ def run_loop(cap: int) -> dict:
     for i in range(1, cap + 1):
         src = mutator.mutate(src, i)
         obs = arena_run(src)
-        yv, fv = yara_detector.scan(src.encode(), rule), falco_detector.evaluate(obs)
+        yv, fv = _yara(obs, rule), falco_detector.evaluate(obs)
         _record(rows, iteration=i, track=1, target="yara", source=src, obs=obs,
                 yv=yv, fv=fv, provenance=mutator.provenance)
         log.info("track1 i=%d  yara=%s  falco=%s", i, yv, fv)
@@ -82,7 +90,7 @@ def run_loop(cap: int) -> dict:
     for i in range(1, cap + 1):
         src = mutator.mutate(src, i)
         obs = arena_run(src)
-        yv, fv = yara_detector.scan(src.encode(), rule), falco_detector.evaluate(obs)
+        yv, fv = _yara(obs, rule), falco_detector.evaluate(obs)
         _record(rows, iteration=i, track=2, target="falco", source=src, obs=obs,
                 yv=yv, fv=fv, provenance=mutator.provenance)
         if fv == "SILENT" and behavior_preserved(obs):
@@ -90,10 +98,10 @@ def run_loop(cap: int) -> dict:
         log.info("track2 i=%d  falco=%s  behavior_preserved=%s", i, fv,
                  behavior_preserved(obs))
 
-    # Finale — ungated: evade Falco only by breaking behavior.
+    # Finale — ungated: evade the behavioral rule only by breaking behavior.
     broken = mutator.disable_behavior(seed)
     obs = arena_run(broken)
-    yv, fv = yara_detector.scan(broken.encode(), rule), falco_detector.evaluate(obs)
+    yv, fv = _yara(obs, rule), falco_detector.evaluate(obs)
     _record(rows, iteration=cap + 1, track=3, target="falco", source=broken, obs=obs,
             yv=yv, fv=fv, provenance=mutator.provenance)
     beh_required_break = fv == "SILENT" and not behavior_preserved(obs)
