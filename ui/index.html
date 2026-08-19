@@ -212,14 +212,32 @@
 
   /* ── Summary ── */
   #summary {
-    margin-top: 14px; border: 1px solid var(--line);
-    border-left: 3px solid var(--accent);
-    border-radius: 0; background: var(--panel2);
-    padding: 16px 20px; display: none;
+    border: 1px solid var(--line);
+    border-top: 2px solid var(--accent);
+    border-radius: 2px; background: var(--panel); display: none; overflow: hidden;
   }
   #summary.show { display: block }
-  #summary b { color: var(--ink) }
-  #summary .line { font-size: 14px; margin: 5px 0; font-family: var(--mono) }
+  .sum-cap {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--dim);
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+    border-left: 2px solid var(--accent);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .sum-body { padding: 16px 20px }
+  .sum-chips { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px }
+  .chip {
+    border: 1px solid var(--line); border-radius: 2px;
+    background: var(--panel2); padding: 12px 16px; flex: 1; min-width: 120px;
+  }
+  .chip-val { font-family: var(--display); font-size: 30px; line-height: 1; margin-bottom: 4px }
+  .chip-val.good    { color: var(--good) }
+  .chip-val.bad     { color: var(--bad) }
+  .chip-val.neutral { color: var(--ink) }
+  .chip-label { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
+  #summary hr { border: none; border-top: 1px solid var(--line); margin: 12px 0 10px }
+  #summary .line { font-size: 13px; margin: 5px 0; font-family: var(--mono); color: var(--dim); line-height: 1.55 }
+  #summary .line b { color: var(--ink) }
   .verify {
     font-family: var(--mono); font-size: 12px; color: var(--dim);
     margin-top: 10px; word-break: break-all; padding: 0 16px 14px;
@@ -371,10 +389,9 @@
         <div class="status hold" id="behStatus">—</div>
         <div class="note" id="behNote">waiting</div>
       </div>
+      <div id="summary"></div>
     </div>
   </div>
-
-  <div id="summary"></div>
 </div>
 
 <script>
@@ -502,18 +519,36 @@ function onVerdict(d){
 
 function onSummary(d){
   const s = $("#summary");
-  if(d.mode === "promptlock"){
+  const mode = d.mode || "metamorphic";
+
+  let chipsHtml, linesHtml;
+  if(mode === "promptlock"){
     const runs = d.total_iterations - 1;
-    s.innerHTML =
+    chipsHtml = [
+      {val: runs, label: "runs", c: "neutral"},
+      {val: d.signature_evasions_by_regeneration+"/"+runs, label: "signature misses", c: d.signature_evasions_by_regeneration > 0 ? "bad" : "good"},
+      {val: d.behavioral_evasions_while_behavior_preserved, label: "behavioral evasions", c: d.behavioral_evasions_while_behavior_preserved > 0 ? "bad" : "good"},
+    ].map(({val,label,c}) => `<div class="chip"><div class="chip-val ${c}">${val}</div><div class="chip-label">${label}</div></div>`).join("");
+    linesHtml =
       `<div class="line">Signature: <b>missed ${d.signature_evasions_by_regeneration}/${runs} regenerated runs</b> — a fresh AI-written script every execution means the byte rule seeded on run 0 doesn't reliably reapply.</div>`+
       `<div class="line">Behavior: <b>${d.behavioral_evasions_while_behavior_preserved} evasions</b> while the behavior was preserved — the same behavioral rule fires on every regenerated script, because the ransomware-shaped action itself never changes.</div>`+
       `<div class="line">Per-run AI generation (PromptLock-style) breaks signatures even harder than build-time rewriting. Behavior still tells the truth.</div>`;
   } else {
-    s.innerHTML =
-      `<div class="line">Signature: <b>evaded after ${d.iterations_to_evade_signature} mutation(s)</b> — bytes change, the rule dies.</div>`+
+    const sigE = d.signature_evaded;
+    chipsHtml = [
+      {val: d.total_iterations, label: "iterations", c: "neutral"},
+      {val: sigE ? d.iterations_to_evade_signature : "—", label: "mutations to break sig", c: sigE ? "bad" : "good"},
+      {val: d.behavioral_evasions_while_behavior_preserved, label: "behavioral evasions", c: d.behavioral_evasions_while_behavior_preserved > 0 ? "bad" : "good"},
+    ].map(({val,label,c}) => `<div class="chip"><div class="chip-val ${c}">${val}</div><div class="chip-label">${label}</div></div>`).join("");
+    linesHtml =
+      `<div class="line">Signature: <b>${sigE ? "evaded after "+d.iterations_to_evade_signature+" mutation(s)" : "held — never evaded"}</b> — bytes change, the rule dies.</div>`+
       `<div class="line">Behavior: <b>${d.behavioral_evasions_while_behavior_preserved} evasions</b> while the behavior was preserved — the rule held every time.</div>`+
       `<div class="line">The AI could only slip past the behavioral rule by <b>${d.behavioral_evasion_required_breaking_behavior ? "abandoning the behavior" : "—"}</b>. Signatures die; behavior tells the truth.</div>`;
   }
+
+  s.innerHTML =
+    `<div class="sum-cap"><span>Run complete</span><span>${mode}</span></div>`+
+    `<div class="sum-body"><div class="sum-chips">${chipsHtml}</div><hr>${linesHtml}</div>`;
   s.classList.add("show");
 }
 
