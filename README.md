@@ -45,6 +45,15 @@ For the real pipeline: `make setup` (installs yara, pulls the model), then
 Same story either way: the signature rule dies, the behavioral rule doesn't.
 Toggle it in the dashboard or pass `--mode promptlock` to `referee/loop.py`.
 
+## Real Falco (optional)
+
+By default the behavioral facts come from strace, run inside the sandbox.
+There's also a real Falco/eBPF sensor (`make falco-build`, then
+`HYDRA_REAL_FALCO=1`) — same rule, real syscalls instead of a trace parse.
+It's opt-in, not the default: it needs a privileged, host-wide container, and
+on a busy shared machine it can be slow enough to time out. Don't turn it on
+for a live demo. Details and the gotchas we hit: ARCHITECTURE.md §9.2.
+
 ## Layout
 
 ```

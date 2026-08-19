@@ -189,7 +189,8 @@ Safety invariants (enforced and checked, section 10):
 | Offline mutator | `adversary/mutator.py` | Deterministic byte/identifier permutation; Track-1 fallback only. |
 | Arena | `arena/run.py`, `arena/Dockerfile` | Compile and run a candidate in a throwaway, network-isolated container; capture syscalls, entropy, files. |
 | Signature detector | `detectors/yara_detector.py`, `detectors/rules/` | Seed a YARA rule from S0; scan each binary. |
-| Behavioral detector | `detectors/falco_detector.py`, `detectors/hydra_ransomware.yaml` | Evaluate the Falco ransomware rule against the trace. |
+| Behavioral detector | `detectors/falco_detector.py`, `detectors/hydra_ransomware.yaml` | Evaluate the ransomware rule against the strace-derived trace (default). |
+| Real behavioral sensor | `detectors/falco_real.py`, `detectors/falco/` | Same rule, sourced from a real Falco/eBPF sensor. Opt-in (`HYDRA_REAL_FALCO=1`), §9.2. |
 | Referee | `referee/loop.py` | Drive the loop, the two tracks, the gate; record metrics to `results.json`. |
 | Server | `server.py` | HTTP + SSE control point for the live dashboard. |
 | Dashboard | `ui/index.html` | SSE client: renders each iteration, the rewrite diff, and the final metrics. |
@@ -202,13 +203,13 @@ Docker runtime; candidates run as throwaway containers inside it.
 
 - Compilation and execution happen in the container, never on the host.
 - The container has no network and no host filesystem access.
-- Falco runs against the container to capture and evaluate behavior (eBPF).
 
-Decision on behavioral capture: Falco is the primary behavioral detector. If Falco
-cannot load its eBPF probe in the Colima kernel, the fallback is `strace`-based
-syscall capture inside the container evaluated against the same rule logic; the
-Falco rule remains the specification. The fallback is a capture mechanism swap
-only — the behavioral claim is unchanged.
+Decision on behavioral capture: the default sensor is `strace`-based syscall
+capture inside the container, evaluated against the same rule logic real Falco
+would apply. A real Falco (eBPF) sensor is also implemented and opt-in via
+`HYDRA_REAL_FALCO=1` — see §9.2 for what that needed and what it doesn't cover
+yet. Either way the rule logic is identical; swapping the sensor is a capture
+mechanism change only, not a change to the behavioral claim.
 
 ## 9. Detectors
 
@@ -230,9 +231,68 @@ left. This is the standard signature workflow, using the standard tool.
 
 The behavioral detector is a Falco rule for ransomware-shaped activity (bulk
 rewrite of files with high-entropy content), adapted from Falco's published
-ransomware detection. Falco evaluates the syscall stream from the arena and
+ransomware detection. It evaluates the syscall stream from the arena and
 reports FIRED or SILENT. Because the rule keys on behavior, byte-level rewrites do
 not change its verdict.
+
+**Default sensor: strace.** `arena/entrypoint.sh` traces the candidate in-container
+(`-xx -s 4096`, full write-buffer capture); `arena/trace.py` parses that into
+files/entropy/network facts on the host. Real, tested, what the loop uses.
+
+**Real sensor: Falco (eBPF), opt-in via `HYDRA_REAL_FALCO=1`.** A long-lived,
+privileged sensor container (`detectors/falco/`, built as `hydra-falco`,
+wraps `falcosecurity/falco-no-driver` with two rules baked in) watches every
+`write()` under `/tmp` and every `connect()` on the host with Falco's modern
+eBPF driver — no kernel module or headers needed; it loads cleanly on the
+Colima VM's kernel (6.8, BTF present). `-S 4096 -b` captures the full write
+buffer, base64, same as strace's `-xx -s 4096` — so this sensor gets real
+entropy, not just event counts.
+
+Three things didn't work as expected, and shaped the design:
+
+1. **Container-name enrichment never resolved.** Falco's docker/CRI
+   container-name lookup came back null for every container tried in this
+   Colima setup, old or new, regardless of which socket path was mounted
+   where. So `detectors/falco_real.py` doesn't scope by container identity;
+   it scopes by **process tree**. `arena/run.py`'s real-Falco path
+   (`_run_detailed_real_falco`) launches the arena container with `Popen`
+   instead of the default blocking call so it can ask Docker for the
+   container's host pid (`docker inspect .State.Pid`) while it's still
+   running, then keeps only sensor events whose pid, ppid, or one of Falco's
+   own ancestor-pid fields (`proc.apid[1..4]`) equals that root pid —
+   verified against a 3-level-deep process tree, comfortably covering the
+   real depth (entrypoint → candidate).
+2. **A ptrace-traced process is invisible to the eBPF probe.** strace (the
+   default sensor) works by ptrace-attaching to the candidate; empirically, a
+   process being ptrace-traced stops generating the syscall events Falco's
+   probe hooks into — verified directly (a write is captured with strace off,
+   silently missing with it on). The two sensors can't watch the same process
+   at once, so the real-Falco path passes `HYDRA_NO_STRACE=1` into the
+   container and both entrypoints (`entrypoint.sh`, `entrypoint_script.sh`)
+   skip the strace wrapper when it's set. The default path is untouched.
+3. **The sensor's own event volume slows the host down.** Watching every
+   `write()` under `/tmp` system-wide (needed since Falco's `fd.name
+   startswith` filtering behaved unreliably in testing — plain `fd.directory=`
+   equality was used instead) generates real load on a busy, shared machine,
+   and empirically that measurably delays new containers getting a live pid —
+   3-4s typically, sometimes into double digits, on the machine this was
+   built and tested on (a Colima VM also running several unrelated long-lived
+   containers). `_run_detailed_real_falco` budgets 10s for that pid-poll and
+   returns an explicit `error` (not a silently-empty report) if it still
+   doesn't show up, rather than reporting zero files and looking like a
+   behavior-free run. `tests/test_falco_real.py`'s gated integration test
+   skips (doesn't fail) when it hits this specifically, since it's an
+   environmental constraint of the box it ran on, not a defect.
+
+This path is genuinely a swap-in when it lands cleanly (real syscalls, real
+entropy, independent of the strace/ptrace mechanism), but it's opt-in rather
+than the default: it needs a privileged, host-pid-namespace container
+watching the whole VM — a materially bigger footprint than the tightly-scoped
+arena the rest of Hydra runs candidates in — and the contention finding above
+means it isn't reliably fast enough yet to turn on for a live demo. This
+repo hasn't run it live in front of an audience yet.
+`_run_detailed_strace` (the default) is untouched by any
+of this.
 
 ### 9.3 Payload modes: build-time vs. runtime polymorphism
 
@@ -342,6 +402,8 @@ arena/entrypoint_script.sh       in-container run-under-strace, no compile (prom
 detectors/yara_detector.py       signature detector (real YARA; python fallback if yara absent)
 detectors/falco_detector.py      behavioral detector (evaluates the class rule)
 detectors/hydra_ransomware.yaml  behavioral rule (spec)
+detectors/falco_real.py          real Falco/eBPF sensor, opt-in (HYDRA_REAL_FALCO=1)
+detectors/falco/                 sensor image: Dockerfile + rules.yaml -> builds as hydra-falco
 detectors/rules/                 generated YARA rules land here at runtime
 adversary/llm.py                 WhiteRabbitNeo (Ollama) adversary: rewrite (metamorphic) + generate (promptlock)
 adversary/mutator.py             deterministic fallback: mutator (Track-1) + generate_promptlock
@@ -377,6 +439,8 @@ HYDRA_OLLAMA_HOST=http://127.0.0.1:11434     # local Ollama
 HYDRA_ADVERSARY_MODEL=<whiterabbitneo tag>   # verify exact tag when pulling
 HYDRA_RDSEC_BASE=                            # optional cloud backup (OpenAI-compatible)
 HYDRA_RDSEC_KEY=                             # from an untracked .env; never committed
+HYDRA_REAL_FALCO=1                           # opt-in real eBPF sensor instead of strace (§9.2)
+                                              # not recommended for a live demo — see §9.2
 ```
 
 ## Appendix B. Run

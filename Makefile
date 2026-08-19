@@ -1,7 +1,7 @@
 # Hydra — common tasks. See ARCHITECTURE.md and CLAUDE.md.
 MODEL ?= jimscard/whiterabbit-neo
 
-.PHONY: help run run-promptlock test dashboard setup arena-build clean
+.PHONY: help run run-promptlock test dashboard setup arena-build falco-build clean
 
 help:  ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -25,6 +25,9 @@ setup:  ## install host detector + pull the adversary model (manual, networked)
 
 arena-build:  ## build the sandbox container image
 	docker build --no-cache -t hydra-arena ./arena
+
+falco-build:  ## build the real Falco sensor image (needed for HYDRA_REAL_FALCO=1)
+	docker build -t hydra-falco ./detectors/falco
 
 clean:  ## remove generated files
 	rm -f results.json
