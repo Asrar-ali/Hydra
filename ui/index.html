@@ -34,7 +34,7 @@
     background-size: 24px 12px, 24px 12px;
     background-position: 0 0, 12px 6px;
     color: var(--ink);
-    font: 16px/1.55 var(--mono);
+    font: 17px/1.6 var(--mono);
   }
 
   /* Hard accent line — no gradient */
@@ -149,21 +149,22 @@
     display: flex; align-items: baseline; gap: 10px;
   }
   .hnum { color: var(--accent); font-size: 10px; opacity: .75 }
-  .board .tool { font-family: var(--mono); font-size: 12px; color: var(--dim); margin-top: 3px }
+  .board .tool { font-family: var(--mono); font-size: 13px; color: #6a9eaf; margin-top: 4px }
 
   .status {
     font-family: var(--display);
-    font-size: 40px;
-    margin: 0 0 4px;
+    font-size: 44px;
+    margin: 0 0 6px;
     padding-top: 14px;
     border-top: 1px solid var(--line);
     letter-spacing: .03em;
+    line-height: 1.1;
   }
   .status.catch  { color: var(--good) }
   .status.evaded { color: var(--bad); animation: glitch .7s ease-out }
   .status.hold   { color: var(--good) }
   .status.warn   { color: var(--amber) }
-  .board .note { color: var(--dim); font-size: 13px; min-height: 18px; font-family: var(--mono) }
+  .board .note { color: #6a9eaf; font-size: 14px; min-height: 18px; font-family: var(--mono) }
 
   .panel {
     border: 1px solid var(--line); border-radius: 2px;
@@ -191,11 +192,11 @@
   }
 
   /* ── Table ── */
-  table { width: 100%; border-collapse: collapse; font-size: 14px }
-  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line) }
+  table { width: 100%; border-collapse: collapse; font-size: 15px }
+  th, td { text-align: left; padding: 9px 13px; border-bottom: 1px solid var(--line) }
   thead th {
-    font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
-    text-transform: uppercase; color: var(--dim);
+    font-family: var(--mono); font-size: 12px; letter-spacing: .08em;
+    text-transform: uppercase; color: #6a9eaf;
   }
   tbody { display: block; max-height: 220px; overflow: auto }
   thead, tbody tr { display: table; width: 100%; table-layout: fixed }
@@ -212,32 +213,33 @@
 
   /* ── Summary ── */
   #summary {
-    border: 1px solid var(--line);
-    border-top: 2px solid var(--accent);
-    border-radius: 2px; background: var(--panel); display: none; overflow: hidden;
+    border: 1px solid rgba(0,122,115,.5);
+    border-top: 3px solid var(--accent);
+    border-radius: 2px; background: #071e24; display: none; overflow: hidden;
+    box-shadow: 0 0 24px rgba(0,122,115,.15);
   }
   #summary.show { display: block }
   .sum-cap {
-    font-family: var(--mono); font-size: 12px; letter-spacing: .1em;
-    text-transform: uppercase; color: var(--dim);
-    padding: 10px 14px; border-bottom: 1px solid var(--line);
-    border-left: 2px solid var(--accent);
+    font-family: var(--mono); font-size: 13px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--good);
+    padding: 12px 16px; border-bottom: 1px solid rgba(0,122,115,.3);
+    border-left: 3px solid var(--accent);
     display: flex; justify-content: space-between; align-items: center;
   }
-  .sum-body { padding: 16px 20px }
-  .sum-chips { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px }
+  .sum-body { padding: 18px 20px }
+  .sum-chips { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px }
   .chip {
-    border: 1px solid var(--line); border-radius: 2px;
-    background: var(--panel2); padding: 12px 16px; flex: 1; min-width: 120px;
+    border: 1px solid rgba(0,122,115,.35); border-radius: 2px;
+    background: rgba(0,122,115,.08); padding: 14px 18px; flex: 1; min-width: 120px;
   }
-  .chip-val { font-family: var(--display); font-size: 30px; line-height: 1; margin-bottom: 4px }
+  .chip-val { font-family: var(--display); font-size: 38px; line-height: 1; margin-bottom: 6px }
   .chip-val.good    { color: var(--good) }
   .chip-val.bad     { color: var(--bad) }
-  .chip-val.neutral { color: var(--ink) }
-  .chip-label { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
-  #summary hr { border: none; border-top: 1px solid var(--line); margin: 12px 0 10px }
-  #summary .line { font-size: 13px; margin: 5px 0; font-family: var(--mono); color: var(--dim); line-height: 1.55 }
-  #summary .line b { color: var(--ink) }
+  .chip-val.neutral { color: #e0f4f8 }
+  .chip-label { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #8ecfdf }
+  #summary hr { border: none; border-top: 1px solid rgba(0,122,115,.3); margin: 14px 0 12px }
+  #summary .line { font-size: 14px; margin: 8px 0; font-family: var(--mono); color: #a8d8e8; line-height: 1.65 }
+  #summary .line b { color: #e8f8ff; font-weight: 600 }
   .verify {
     font-family: var(--mono); font-size: 12px; color: var(--dim);
     margin-top: 10px; word-break: break-all; padding: 0 16px 14px;
@@ -579,9 +581,9 @@ function onSummary(d){
       {val: d.behavioral_evasions_while_behavior_preserved, label: "behavioral evasions", c: d.behavioral_evasions_while_behavior_preserved > 0 ? "bad" : "good"},
     ].map(({val,label,c}) => `<div class="chip"><div class="chip-val ${c}">${val}</div><div class="chip-label">${label}</div></div>`).join("");
     linesHtml =
-      `<div class="line">Signature: <b>${sigE ? "evaded after "+d.iterations_to_evade_signature+" mutation(s)" : "held — never evaded"}</b> — bytes change, the rule dies.</div>`+
-      `<div class="line">Behavior: <b>${d.behavioral_evasions_while_behavior_preserved} evasions</b> while the behavior was preserved — the rule held every time.</div>`+
-      `<div class="line">The AI could only slip past the behavioral rule by <b>${d.behavioral_evasion_required_breaking_behavior ? "abandoning the behavior" : "—"}</b>. Signatures die; behavior tells the truth.</div>`;
+      `<div class="line">Signature <b>${sigE ? "evaded after "+d.iterations_to_evade_signature+" mutation"+(d.iterations_to_evade_signature>1?"s":"") : "held, never evaded"}</b>. Change the bytes and the rule goes blind.</div>`+
+      `<div class="line">Behavioral rule fired every time. <b>${d.behavioral_evasions_while_behavior_preserved} evasions</b> while the program still behaved like ransomware.</div>`+
+      `<div class="line">${d.behavioral_evasion_required_breaking_behavior ? "The only way out was to <b>stop being ransomware</b>. Behavior tells the truth." : "Behavioral rule held throughout."}</div>`;
   }
 
   s.innerHTML =
