@@ -1,4 +1,4 @@
-"""The robustness-scorer loop. See ARCHITECTURE.md §11.
+"""The robustness-scorer loop. See ARCHITECTURE.md §5.2, §11.
 
 Drives Hydra's "detection-rule robustness scorer" mode: for each behavioral
 rule in ``detectors/rules_registry.RULES`` (naive_inplace, rate_windowed,
@@ -15,7 +15,9 @@ not one per rule x mechanism pair (25). For each rule, the mechanisms are
 walked in ``MECHANISMS`` order (weakest evasion first — shallowest depth
 wins) and the first one that drives the rule SILENT while
 ``referee.gate.behavior_preserved`` is still True is recorded as that rule's
-evasion depth (1-based index into MECHANISMS).
+evasion depth (1-based index into MECHANISMS). ``evasion_depth`` is and
+remains this deterministic toolbox metric — the opt-in LLM overlay below
+never changes its meaning, it only adds a second, independent signal.
 
 Note: as of Phase 1, ``write_inplace``, ``rename_swap``, ``throttle``, and
 ``fanout`` are all real generators in ``adversary.mechanisms``; only
@@ -25,24 +27,51 @@ to stay UNEVADED (depth ∞) until Phase 3 implements the real mmap mechanism.
 The search logic itself is real regardless of which mechanisms are
 implemented — it will pick up mmap automatically once that generator lands.
 
+Phase 2: OPT-IN LLM overlay, gated on BOTH ``HYDRA_SCORE_LLM=1`` and the
+adversary actually being reachable (see ``_use_llm``). Default runs
+(``make score``, and every test in this repo) never touch it and stay fast
+and offline — the deterministic toolbox search above is unconditional and
+unchanged. When opted in, for every rule the toolbox already found EVADED
+(robust/never-evaded rules are skipped — there is nothing cheap to check),
+the scorer gives the LLM ONE independent shot at the same rule: it is told
+only the fired rule's name and handed the plain write-in-place seed (never
+the toolbox's winning mechanism), via ``adversary.mechanisms.mechanism_prompt``.
+If the LLM's rewrite compiles, evades that rule's ``RuleSpec.evaluate``, and
+still passes ``referee.gate.behavior_preserved``, that is recorded as
+``llm_evaded=True`` with a short ``llm_note`` and ``provenance="llm"`` on
+that rule's ``RuleScore`` — evidence the adversary can DISCOVER the same
+class of evasion from feedback alone, not just replay our toolbox. Any
+failure anywhere in that one attempt (Ollama down, bad/uncompilable output,
+timeout, arena error) is swallowed; the deterministic offline result for
+that rule is left exactly as the toolbox search computed it.
+
 Mirrors ``referee/loop.py``'s ``run_events``/``run_loop`` shape: a generator
 yielding ``(event_name, data_dict)`` tuples per the SSE contract, and a
 blocking wrapper that drains it into a plain dict.
 
     python3 -c "from referee.scorer import run_scorecard; print(run_scorecard(12))"
+    HYDRA_SCORE_LLM=1 python3 -c "from referee.scorer import run_scorecard; print(run_scorecard(12))"
 """
 from __future__ import annotations
 
+import os
 from typing import Iterator, Optional
 
-from adversary.mechanisms import MECHANISMS, apply_mechanism
+from adversary import llm
+from adversary.mechanisms import MECHANISMS, apply_mechanism, mechanism_prompt
 from arena.run import run_detailed
-from common.contracts import ArenaObservation, RuleScore, Scorecard
+from common.contracts import ArenaObservation, Feedback, RuleScore, Scorecard
 from common.logging import get_logger
-from detectors.rules_registry import RULES
+from detectors.rules_registry import RULES, RuleSpec
 from referee.gate import behavior_preserved
 
 log = get_logger("scorer")
+
+# Per-attempt timeout for the LLM overlay's one-shot rewrite call. The whole
+# attempt (rewrite + arena run) is wrapped in try/except in
+# ``_attempt_llm_evasion`` so a slow/unreachable model can never hang or
+# crash the scorer — worst case this rule's offline result stands unchanged.
+_LLM_ATTEMPT_TIMEOUT = 120.0
 
 
 def _build_observations() -> dict[str, Optional[ArenaObservation]]:
@@ -63,6 +92,47 @@ def _build_observations() -> dict[str, Optional[ArenaObservation]]:
     return obs_by_mech
 
 
+def _use_llm() -> bool:
+    """Mirrors ``referee.loop._use_llm``: is the adversary actually usable
+    right now (not faked out, Ollama reachable, model pulled)? This alone
+    does NOT turn the overlay on — see ``_llm_overlay_enabled``."""
+    return os.environ.get("HYDRA_FAKE") != "1" and llm.is_available()
+
+
+def _llm_overlay_enabled() -> bool:
+    """The overlay is opt-in: ``HYDRA_SCORE_LLM=1`` AND the adversary must be
+    reachable. Checked in this order so the default (unset) path never even
+    probes Ollama — ``make score`` stays fast and fully offline."""
+    return os.environ.get("HYDRA_SCORE_LLM") == "1" and _use_llm()
+
+
+def _attempt_llm_evasion(rule_name: str, spec: RuleSpec) -> tuple[bool, Optional[str]]:
+    """One independent attempt to have the LLM evade ``rule_name`` on its
+    own: told only the fired rule's name (never the toolbox mechanism that
+    already evaded it), starting from the plain write-in-place seed. Returns
+    ``(llm_evaded, llm_note)``.
+
+    Deliberately swallows EVERY exception (network/model failure, a
+    candidate that doesn't compile, a bad extraction, an arena error) — this
+    is a best-effort second opinion layered on top of the deterministic
+    toolbox search, never a way for the scorer to crash or hang."""
+    try:
+        seed_source = apply_mechanism("write_inplace")
+        prompt_text = mechanism_prompt(rule_name, seed_source)
+        feedback = Feedback("falco", prompt_text, seed_source)
+        raw = llm.rewrite(feedback, timeout=_LLM_ATTEMPT_TIMEOUT)
+        candidate = llm.extract_c(raw)
+        obs, _report = run_detailed(candidate)
+        if obs.compiled and spec.evaluate(obs) == "SILENT" and behavior_preserved(obs):
+            note = (f"LLM independently rewrote the program to evade {rule_name!r} "
+                     "while preserving behavior, given only the fired rule's name "
+                     "(not the toolbox's mechanism).")
+            return True, note
+    except Exception as exc:  # noqa: BLE001 - llm/arena failure must never affect the offline result
+        log.warning("llm overlay attempt for rule %r failed (%s); keeping offline result", rule_name, exc)
+    return False, None
+
+
 def score_rules_events(cap: int, mode: str = "robustness") -> Iterator[tuple[str, dict]]:
     """Generator: yields SSE-shaped ``(event, data)`` tuples for the
     robustness-scorer run. ``cap`` is accepted for interface parity with
@@ -71,6 +141,13 @@ def score_rules_events(cap: int, mode: str = "robustness") -> Iterator[tuple[str
 
     For each rule: one ``rule_start`` then one ``rule_verdict``. Finally one
     ``scorecard`` event carrying the full leaderboard (ARCHITECTURE.md §11).
+
+    When ``HYDRA_SCORE_LLM=1`` (and the adversary is reachable — see
+    ``_llm_overlay_enabled``), every rule the toolbox found evaded also gets
+    one independent LLM evasion attempt (see ``_attempt_llm_evasion``); its
+    result is folded into that rule's ``rule_verdict``/``RuleScore`` as
+    ``llm_evaded``/``llm_note``, without touching the deterministic
+    ``evasion_depth``/``mechanism`` the toolbox search already computed.
     """
     log.info("scorer starting  mode=%s  cap=%d  mechanisms=%s", mode, cap, MECHANISMS)
 
@@ -78,6 +155,9 @@ def score_rules_events(cap: int, mode: str = "robustness") -> Iterator[tuple[str
     if all(obs is None for obs in obs_by_mech.values()):
         yield "error", {"stage": "arena", "message": "every mechanism failed to run in the arena"}
         return
+
+    overlay_on = _llm_overlay_enabled()
+    log.info("llm overlay %s", "ON" if overlay_on else "off")
 
     rules: list[RuleScore] = []
     for name, spec in RULES.items():
@@ -94,6 +174,13 @@ def score_rules_events(cap: int, mode: str = "robustness") -> Iterator[tuple[str
 
         by_mechanism = {m: spec.evaluate(obs) for m, obs in obs_by_mech.items() if obs is not None}
 
+        provenance = "offline"
+        llm_evaded, llm_note = False, None
+        if evaded and overlay_on:
+            llm_evaded, llm_note = _attempt_llm_evasion(name, spec)
+            if llm_evaded:
+                provenance = "llm"
+
         yield "rule_verdict", {
             "rule": name,
             "evaded": evaded,
@@ -101,15 +188,20 @@ def score_rules_events(cap: int, mode: str = "robustness") -> Iterator[tuple[str
             "mechanism": mechanism,
             "behavior_preserved": preserved_at_evasion,
             "by_mechanism": by_mechanism,
+            "llm_evaded": llm_evaded,
+            "llm_note": llm_note,
         }
-        log.info("rule=%s  evaded=%s  depth=%s  mechanism=%s", name, evaded, depth, mechanism)
+        log.info("rule=%s  evaded=%s  depth=%s  mechanism=%s  llm_evaded=%s",
+                 name, evaded, depth, mechanism, llm_evaded)
         rules.append(RuleScore(
             rule=name,
             evaded=evaded,
             evasion_depth=depth,
             mechanism_that_evaded=mechanism,
             behavior_preserved_at_evasion=evaded,
-            provenance="offline",
+            provenance=provenance,
+            llm_evaded=llm_evaded,
+            llm_note=llm_note,
         ))
 
     scorecard = Scorecard(mode=mode, total_iterations=len(MECHANISMS), rules=rules)
@@ -145,9 +237,10 @@ def main() -> int:
     print("  ROBUSTNESS LEADERBOARD  (rule -> shallowest evasion)")
     print("=" * 62)
     for r in card.get("rules", []):
+        marker = "  🤖 LLM" if r.get("llm_evaded") else ""
         if r["evaded"]:
             print(f"  {r['rule']:<16} depth {r['evasion_depth']}  "
-                  f"via {r['mechanism_that_evaded']}")
+                  f"via {r['mechanism_that_evaded']}{marker}")
         else:
             print(f"  {r['rule']:<16} depth ∞   NEVER EVADED (robust)")
     print("=" * 62)

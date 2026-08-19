@@ -81,6 +81,13 @@ class RuleScore:
     mechanism_that_evaded: Optional[str]
     behavior_preserved_at_evasion: bool
     provenance: Provenance
+    # Phase 2: opt-in LLM overlay (HYDRA_SCORE_LLM=1) — did the adversary
+    # INDEPENDENTLY discover an evasion for this rule from just the fired
+    # rule name and the plain seed (not told which toolbox mechanism to use)?
+    # Additive/backward-compatible: both default so existing callers building
+    # a RuleScore without them (and existing serialized scorecards) still work.
+    llm_evaded: bool = False
+    llm_note: Optional[str] = None
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -4,6 +4,8 @@
     GET /run            run the loop live, stream events as SSE
                         query: iterations=N, fake=1 (no container), record=1,
                                mode=metamorphic|promptlock (default metamorphic)
+    GET /score          run the detection-rule robustness scorer, stream SSE
+                        query: iterations=N (default 12)
     GET /replay         replay a recorded run (replay.json) with live pacing
     GET /health         liveness
 
@@ -64,6 +66,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(_available_seeds())
         if route.path == "/run":
             return self._run(params)
+        if route.path == "/score":
+            return self._score(params)
         if route.path == "/replay":
             return self._replay()
         self.send_error(404)
@@ -134,6 +138,17 @@ class Handler(BaseHTTPRequestHandler):
             with open(REPLAY, "w", encoding="utf-8") as fh:
                 json.dump(collected, fh)
             log.info("recorded %d events -> replay.json", len(collected))
+
+    def _score(self, params):
+        cap = int(params.get("iterations", ["12"])[0])
+
+        self._open_sse()
+        try:
+            from referee.scorer import score_rules_events
+            for name, data in score_rules_events(cap):
+                self._send(name, data)
+        except BrokenPipeError:
+            return  # client disconnected
 
     def _replay(self):
         try:

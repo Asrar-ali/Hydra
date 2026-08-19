@@ -245,6 +245,46 @@
     margin-top: 10px; word-break: break-all; padding: 0 16px 14px;
   }
 
+  /* ── Robustness leaderboard ── */
+  #scorePanel { display: none; margin-top: 14px }
+  #scorePanel.show { display: block }
+  .score-caption {
+    font-family: var(--mono); font-size: 12.5px; color: var(--dim);
+    padding: 12px 16px 4px; line-height: 1.55;
+  }
+  .matrix-wrap { overflow-x: auto; padding: 10px 16px 4px }
+  table.matrix { border-collapse: collapse; font-size: 13px; white-space: nowrap }
+  table.matrix th, table.matrix td {
+    padding: 7px 12px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line);
+    text-align: left;
+  }
+  table.matrix th {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--dim);
+  }
+  table.matrix td.rule-cell { font-family: var(--mono); color: var(--ink); font-weight: 600 }
+  table.matrix tr.testing td.rule-cell { color: var(--dim); font-style: italic }
+  .mx-cell { font-family: var(--mono); font-size: 11px; text-align: center; padding: 6px 10px; border-radius: 2px }
+  .mx-fired  { color: var(--good); background: rgba(62,207,110,.14) }
+  .mx-silent { color: var(--bad);  background: rgba(232,54,74,.14) }
+  .mx-na     { color: var(--dim) }
+  .lb-lines { padding: 6px 16px 16px; display: flex; flex-direction: column; gap: 6px }
+  .lb-line { font-family: var(--mono); font-size: 13px; color: var(--ink) }
+  .lb-line.error { color: var(--bad) }
+  .lb-line .depth-num  { color: var(--bad);  font-weight: 600 }
+  .lb-line .depth-inf  { color: var(--good); font-weight: 600 }
+  .llm-badge {
+    font-family: var(--mono); font-size: 10.5px; margin-left: 8px; padding: 2px 6px;
+    border-radius: 2px; color: var(--accent); background: rgba(0,122,115,.14);
+    border: 1px solid rgba(0,122,115,.3);
+  }
+  .score-headline {
+    font-family: var(--display); font-size: 20px; color: var(--ink);
+    padding: 4px 16px 14px; letter-spacing: .02em;
+  }
+  .score-headline.all-robust { color: var(--good) }
+  .score-headline.has-evasions { color: var(--bad) }
+
   /* ── Animations ── */
   @keyframes subtlePulse {
     0%, 100% { box-shadow: 0 0 4px rgba(0,122,115,.4) }
@@ -359,6 +399,7 @@
       <button id="editPrompt">Edit prompt</button>
       <button id="replay">Replay</button>
       <button id="run" class="go">▶ Run</button>
+      <button id="score">⚑ Score rules</button>
     </div>
   </header>
 
@@ -409,6 +450,18 @@
       </div>
       <div id="summary"></div>
     </div>
+  </div>
+
+  <div class="panel" id="scorePanel">
+    <div class="cap"><span>Detection-rule robustness leaderboard</span><span id="scoreMeta"></span></div>
+    <div class="score-caption">An AI adversary attacks each behavioral rule with a toolbox of syscall mechanisms. Green = rule fired (caught); red = evaded while behavior was preserved. Depth = how many mechanisms it took.</div>
+    <div class="matrix-wrap">
+      <table class="matrix" id="matrixTable">
+        <thead><tr id="matrixHead"><th>rule</th></tr></thead>
+        <tbody id="matrixRows"></tbody>
+      </table>
+    </div>
+    <div id="leaderboardLines" class="lb-lines"></div>
   </div>
 </div>
 
@@ -663,6 +716,100 @@ function openStream(url) {
 
   return src;
 }
+
+// ── Robustness leaderboard (scorer) ──────────────────────────────────────
+let scoreEs = null, matrixCols = null;
+
+function resetScore(){
+  if (scoreEs) scoreEs.close();
+  matrixCols = null;
+  $("#matrixHead").innerHTML = "<th>rule</th>";
+  $("#matrixRows").innerHTML = "";
+  $("#leaderboardLines").innerHTML = "";
+  $("#scoreMeta").textContent = "";
+  $("#scorePanel").classList.add("show");
+}
+
+function onRuleStart(d){
+  const tr = document.createElement("tr");
+  tr.id = "mxrow-" + d.rule;
+  tr.className = "testing";
+  tr.innerHTML = `<td class="rule-cell">${d.rule}</td>`;
+  $("#matrixRows").appendChild(tr);
+
+  const line = document.createElement("div");
+  line.id = "lbline-" + d.rule;
+  line.className = "lb-line";
+  line.textContent = `${d.rule} — testing…`;
+  $("#leaderboardLines").appendChild(line);
+}
+
+function mxCell(v){
+  const cls = v === "FIRED" ? "mx-fired" : v === "SILENT" ? "mx-silent" : "mx-na";
+  return `<td class="mx-cell ${cls}">${v}</td>`;
+}
+
+function onRuleVerdict(d){
+  if (!matrixCols) {
+    matrixCols = Object.keys(d.by_mechanism || {});
+    $("#matrixHead").innerHTML = "<th>rule</th>" + matrixCols.map(m => `<th>${m}</th>`).join("");
+  }
+  const tr = document.getElementById("mxrow-" + d.rule);
+  if (tr){
+    tr.classList.remove("testing");
+    const by = d.by_mechanism || {};
+    const cells = matrixCols.map(m => mxCell(by[m] || "—")).join("");
+    tr.innerHTML = `<td class="rule-cell">${d.rule}</td>${cells}`;
+  }
+
+  const line = document.getElementById("lbline-" + d.rule);
+  if (line){
+    const badge = d.llm_evaded ? `<span class="llm-badge">🤖 LLM</span>` : "";
+    const body = d.evaded
+      ? `<b>${d.rule}</b> — depth <span class="depth-num">${d.evasion_depth}</span> via ${d.mechanism}`
+      : `<b>${d.rule}</b> — depth <span class="depth-inf">∞</span> · NEVER EVADED`;
+    line.innerHTML = body + badge;
+  }
+}
+
+function onScorecard(d){
+  const rules = d.rules || [];
+  const evadedCount = rules.filter(r => r.evaded).length;
+  const total = rules.length;
+  const robust = total - evadedCount;
+  const headline = document.createElement("div");
+  headline.className = "score-headline " + (evadedCount === 0 ? "all-robust" : "has-evasions");
+  headline.textContent = `${evadedCount} of ${total} rules evaded — ${robust} robust`;
+  $("#leaderboardLines").appendChild(headline);
+  $("#scoreMeta").textContent = d.mode || "robustness";
+  if (scoreEs){ scoreEs.close(); scoreEs = null; }
+  $("#score").disabled = false;
+}
+
+function onScoreError(d){
+  const el = document.createElement("div");
+  el.className = "lb-line error";
+  el.textContent = `error (${d.stage}): ${d.message}`;
+  $("#leaderboardLines").appendChild(el);
+  if (scoreEs){ scoreEs.close(); scoreEs = null; }
+  $("#score").disabled = false;
+}
+
+function wireScore(src){
+  src.addEventListener("rule_start",   e=>onRuleStart(JSON.parse(e.data)));
+  src.addEventListener("rule_verdict", e=>onRuleVerdict(JSON.parse(e.data)));
+  src.addEventListener("scorecard",    e=>onScorecard(JSON.parse(e.data)));
+  src.addEventListener("error",        e=>onScoreError(JSON.parse(e.data)));
+  src.onerror = ()=>{ $("#score").disabled = false; };
+}
+
+$("#score").addEventListener("click", ()=>{
+  const iters = $("#iters").value || 12;
+  resetScore();
+  $("#score").disabled = true;
+  scoreEs = openStream(`/score?iterations=${iters}`);
+  wireScore(scoreEs);
+});
 
 $("#run").addEventListener("click", ()=>{
   const iters = $("#iters").value || 6;
