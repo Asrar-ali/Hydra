@@ -817,8 +817,16 @@ $("#run").addEventListener("click", ()=>{
   initHeads(parseInt(iters));
   const fake = $("#fake").checked ? 1 : 0;
   const mode = $("#mode").value;
-  const prompt = encodeURIComponent($("#promptText").value.trim());
-  const seed = $("#seed").value || "seed";
+  const promptEl = $("#promptText");
+  const prompt = encodeURIComponent(promptEl ? promptEl.value.trim() : "");
+  const seedEl = $("#seed");                       // optional dropdown; may be absent
+  const seed = (seedEl && seedEl.value) || "seed"; // never throw if it isn't there
+  // Real mode calls a local model + arena and can sit for ~30s before the first
+  // token — show that so an in-flight run never looks dead. Cleared on baseline.
+  if (!fake) {
+    $("#stream").textContent = "▶ starting — contacting the model (the first token can take ~30s in real mode)…";
+    $("#streamMeta").textContent = "starting";
+  }
   es = openStream(`/run?iterations=${iters}&fake=${fake}&mode=${mode}&seed=${seed}&record=1&prompt=${prompt}`);
   wire(es);
 });
