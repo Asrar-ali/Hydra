@@ -4,20 +4,21 @@
 <title>Hydra</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Special+Elite&family=Share+Tech+Mono&display=swap');
+  @import url('https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Special+Elite&display=swap');
 
   :root {
-    --bg:      #060a0d;
-    --panel:   #0b1319;
-    --panel2:  #070e14;
-    --line:    #182535;
-    --ink:     #c8dce8;
-    --dim:     #3e5d6e;
-    --accent:  #9fdb1d;
-    --good:    #3ecf6e;
+    --bg:      #010508;/* #1D2007 */
+    --panel:   #061418;
+    --panel2:  #030d12;
+    --line:    #0c2230;
+    --ink:     #b2d8e4;
+    --dim:     #2e5c6e;
+    --accent:  #007A73;
+    --good:    #1ab8a8;
     --bad:     #e8364a;
     --amber:   #d4a017;
-    --mono:    'Share Tech Mono', ui-monospace, 'SF Mono', monospace;
+    --mono:    'Clash Display', ui-monospace, 'SF Mono', monospace;
     --display: 'Special Elite', serif;
   }
 
@@ -28,12 +29,12 @@
     margin: 0;
     background-color: var(--bg);
     background-image:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='12'%3E%3Cpath d='M0 12 Q12 0 24 12' fill='none' stroke='%239fdb1d' stroke-opacity='0.065' stroke-width='0.9'/%3E%3C/svg%3E"),
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='12'%3E%3Cpath d='M0 12 Q12 0 24 12' fill='none' stroke='%239fdb1d' stroke-opacity='0.065' stroke-width='0.9'/%3E%3C/svg%3E");
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='12'%3E%3Cpath d='M0 12 Q12 0 24 12' fill='none' stroke='%23007A73' stroke-opacity='0.065' stroke-width='0.9'/%3E%3C/svg%3E"),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='12'%3E%3Cpath d='M0 12 Q12 0 24 12' fill='none' stroke='%23007A73' stroke-opacity='0.065' stroke-width='0.9'/%3E%3C/svg%3E");
     background-size: 24px 12px, 24px 12px;
     background-position: 0 0, 12px 6px;
     color: var(--ink);
-    font: 15px/1.5 var(--mono);
+    font: 16px/1.55 var(--mono);
   }
 
   /* Hard accent line — no gradient */
@@ -53,7 +54,12 @@
   /* ── Header ── */
   header {
     display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
-    border-bottom: 1px solid var(--line); padding-bottom: 16px;
+    padding-bottom: 20px; position: relative;
+  }
+  header::after {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, var(--accent), var(--line) 40%, transparent);
   }
   .logo { display: flex; align-items: center; gap: 14px }
   .hydra-icon { color: var(--accent); flex-shrink: 0 }
@@ -67,8 +73,8 @@
   .word b { color: var(--accent) }
 
   .tag {
-    font-family: var(--mono); color: var(--dim);
-    font-size: 11px; letter-spacing: .07em; margin-top: 4px;
+    font-family: var(--mono); color: var(--dim); font-style: italic;
+    font-size: 14px; letter-spacing: .04em; margin-top: 5px;
   }
   .controls { margin-left: auto; display: flex; align-items: center; gap: 10px }
 
@@ -89,83 +95,113 @@
   }
   button:hover:not(:disabled) { border-color: var(--dim) }
   button.go {
-    background: var(--accent); color: #080f01; border-color: var(--accent);
+    background: var(--accent); color: #d0f0ee; border-color: var(--accent);
     animation: subtlePulse 2.6s ease-in-out infinite;
   }
   button.go:disabled { opacity: .45; cursor: default; animation: none }
+  button#replay { border-style: dashed }
 
   label.sub {
-    color: var(--dim); font-family: var(--mono); font-size: 12px;
+    color: var(--dim); font-family: var(--mono); font-size: 13px;
     display: flex; align-items: center; gap: 6px;
   }
 
+  /* ── War-room layout ── */
+  .war-room {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 14px 0;
+    margin-top: 14px;
+    align-items: start;
+  }
+  .main-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding-right: 4px }
+  .sidebar   {
+    display: flex; flex-direction: column; gap: 14px;
+    border-left: 1px solid rgba(0,122,115,.2); padding-left: 18px;
+  }
+
   /* ── Detector boards ── */
-  .boards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 20px }
   .board {
     border: 1px solid var(--line);
     border-left: 3px solid var(--dim);
     border-radius: 2px;
     background: var(--panel); padding: 18px 20px;
     transition: border-left-color .4s ease;
+    position: relative; overflow: hidden;
   }
+  .board::before {
+    content: attr(data-n);
+    position: absolute; right: -4px; bottom: -16px;
+    transition: opacity .3s ease;
+    font-family: var(--display); font-size: 100px; line-height: 1;
+    color: #1a4a28; opacity: 0.55;
+    pointer-events: none; user-select: none;
+  }
+  .war-room.running .board::before { opacity: 0 }
   .board:has(.status.evaded) { border-left-color: var(--bad) }
   .board:has(.status.catch),
   .board:has(.status.hold)   { border-left-color: var(--accent) }
   .board:has(.status.warn)   { border-left-color: var(--amber) }
 
   .board h2 {
-    margin: 0; font-size: 11px; letter-spacing: .18em;
+    margin: 0; font-size: 12px; letter-spacing: .14em;
     text-transform: uppercase; color: var(--dim); font-family: var(--mono);
     display: flex; align-items: baseline; gap: 10px;
   }
   .hnum { color: var(--accent); font-size: 10px; opacity: .75 }
-  .board .tool { font-family: var(--mono); font-size: 11px; color: var(--dim); margin-top: 3px }
+  .board .tool { font-family: var(--mono); font-size: 12px; color: var(--dim); margin-top: 3px }
 
   .status {
     font-family: var(--display);
-    font-size: 34px;
-    margin: 14px 0 4px;
-    letter-spacing: .04em;
+    font-size: 40px;
+    margin: 0 0 4px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    letter-spacing: .03em;
   }
   .status.catch  { color: var(--good) }
   .status.evaded { color: var(--bad); animation: glitch .7s ease-out }
   .status.hold   { color: var(--good) }
   .status.warn   { color: var(--amber) }
-  .board .note { color: var(--dim); font-size: 12px; min-height: 18px; font-family: var(--mono) }
+  .board .note { color: var(--dim); font-size: 13px; min-height: 18px; font-family: var(--mono) }
 
-  /* ── Grid ── */
-  .grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 14px; margin-top: 14px }
   .panel {
     border: 1px solid var(--line); border-radius: 2px;
     background: var(--panel); overflow: hidden;
   }
   .panel .cap {
-    font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+    font-family: var(--mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
     color: var(--dim); padding: 10px 14px; border-bottom: 1px solid var(--line);
     display: flex; justify-content: space-between; align-items: center;
   }
-  .panel .cap::before { content: '›'; color: var(--accent); margin-right: 6px; font-size: 14px }
+  .panel.primary { border-top: 2px solid var(--accent) }
+  .panel .cap { border-left: 2px solid var(--accent) }
   #stream {
-    margin: 0; padding: 14px 16px; font-family: var(--mono); font-size: 12.5px;
-    line-height: 1.55; white-space: pre-wrap; word-break: break-word;
-    height: 340px; overflow: auto;
+    margin: 0; padding: 14px 16px; font-family: var(--mono); font-size: 13.5px;
+    line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+    height: 440px; overflow: auto;
     color: var(--ink); background: var(--panel2);
   }
   #stream .note   { color: var(--amber) }
   #stream .cursor { color: var(--accent) }
+  #stream:empty::before {
+    content: '>_';
+    color: #1ecfa0; opacity: .5;
+    animation: blink 1.1s step-end infinite;
+  }
 
   /* ── Table ── */
-  table { width: 100%; border-collapse: collapse; font-size: 13px }
+  table { width: 100%; border-collapse: collapse; font-size: 14px }
   th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line) }
   thead th {
-    font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+    font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
     text-transform: uppercase; color: var(--dim);
   }
-  tbody { display: block; max-height: 300px; overflow: auto }
+  tbody { display: block; max-height: 220px; overflow: auto }
   thead, tbody tr { display: table; width: 100%; table-layout: fixed }
   #rows tr { animation: newHead .6s ease-out }
 
-  .pill { font-family: var(--mono); font-size: 10px; padding: 2px 7px; border-radius: 2px; white-space: nowrap }
+  .pill { font-family: var(--mono); font-size: 11px; padding: 3px 8px; border-radius: 2px; white-space: nowrap }
   .match  { color: var(--bad);   background: rgba(232,54,74,.14) }
   .clean  { color: var(--good);  background: rgba(62,207,110,.14) }
   .fired  { color: var(--good);  background: rgba(62,207,110,.14) }
@@ -185,19 +221,19 @@
   #summary b { color: var(--ink) }
   #summary .line { font-size: 14px; margin: 5px 0; font-family: var(--mono) }
   .verify {
-    font-family: var(--mono); font-size: 11px; color: var(--dim);
+    font-family: var(--mono); font-size: 12px; color: var(--dim);
     margin-top: 10px; word-break: break-all; padding: 0 16px 14px;
   }
 
   /* ── Animations ── */
   @keyframes subtlePulse {
-    0%, 100% { box-shadow: 0 0 4px rgba(159,219,29,.3) }
-    50%       { box-shadow: 0 0 12px rgba(159,219,29,.5) }
+    0%, 100% { box-shadow: 0 0 4px rgba(0,122,115,.4) }
+    50%       { box-shadow: 0 0 14px rgba(0,122,115,.65) }
   }
 
   @keyframes newHead {
-    0%   { opacity: 0; background: rgba(159,219,29,.12) }
-    55%  { opacity: 1; background: rgba(159,219,29,.03) }
+    0%   { opacity: 0; background: rgba(0,122,115,.18) }
+    55%  { opacity: 1; background: rgba(0,122,115,.04) }
     100% { opacity: 1; background: transparent }
   }
 
@@ -210,6 +246,46 @@
     58%  { transform: translate(-1px, 0);   clip-path: inset(0 0 0 0) }
     78%  { transform: translate(0);         opacity: .85 }
     100% { transform: translate(0);         clip-path: inset(0 0 0 0); opacity: 1 }
+  }
+
+  /* ── Head tracker ── */
+  .heads-row {
+    display: none;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 0 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .heads-row.visible { display: flex }
+  .heads-label {
+    font-family: var(--mono); font-size: 14px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--dim); white-space: nowrap; flex-shrink: 0;
+  }
+  .heads-track { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end }
+  .head-icon {
+    color: var(--dim); opacity: .25;
+    transition: color .3s, opacity .3s, transform .35s;
+    cursor: default; position: relative;
+  }
+  .head-icon svg { display: block }
+  .head-icon.evaded {
+    color: var(--accent); opacity: 1;
+    animation: headGrow .45s ease-out;
+  }
+  .head-icon.caught {
+    color: var(--bad); opacity: .4;
+    transform: rotate(14deg);
+  }
+
+  @keyframes headGrow {
+    0%   { transform: scale(.45) translateY(4px); opacity: 0 }
+    65%  { transform: scale(1.18) translateY(-1px) }
+    100% { transform: scale(1) translateY(0); opacity: 1 }
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: .35 }
+    50%       { opacity: 0 }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -235,9 +311,9 @@
         <path d="M33 27 L36 25" stroke-width="1" opacity="0.5"/>
         <path d="M37 22 L40 20" stroke-width="1" opacity="0.5"/>
         <!-- Left head — elongated diamond -->
-        <path d="M6 15 L1 10 L6 4 L11 10 Z" stroke-width="1.5" fill="rgba(159,219,29,0.11)"/>
+        <path d="M6 15 L1 10 L6 4 L11 10 Z" stroke-width="1.5" fill="rgba(0,122,115,0.15)"/>
         <!-- Right head — elongated diamond -->
-        <path d="M42 15 L37 10 L42 4 L47 10 Z" stroke-width="1.5" fill="rgba(159,219,29,0.11)"/>
+        <path d="M42 15 L37 10 L42 4 L47 10 Z" stroke-width="1.5" fill="rgba(0,122,115,0.15)"/>
         <!-- Left tongue fork -->
         <path d="M6 4 L4 1 M6 4 L8 1" stroke-width="1"/>
         <!-- Right tongue fork -->
@@ -262,33 +338,39 @@
     </div>
   </header>
 
-  <div class="boards">
-    <div class="board">
-      <h2><span class="hnum">01</span> Signature detector</h2>
-      <div class="tool">YARA · rule seeded from generation 0</div>
-      <div class="status catch" id="sigStatus">—</div>
-      <div class="note" id="sigNote">waiting</div>
-    </div>
-    <div class="board">
-      <h2><span class="hnum">02</span> Behavioral detector</h2>
-      <div class="tool">ransomware-class rule · real syscalls</div>
-      <div class="status hold" id="behStatus">—</div>
-      <div class="note" id="behNote">waiting</div>
-    </div>
+  <div class="heads-row" id="headsRow">
+    <span class="heads-label">Heads</span>
+    <div class="heads-track" id="headsTrack"></div>
   </div>
 
-  <div class="grid">
-    <div class="panel">
-      <div class="cap"><span>AI rewriting the malware</span><span id="streamMeta"></span></div>
-      <pre id="stream"></pre>
-      <div class="verify" id="verify"></div>
+  <div class="war-room">
+    <div class="main-col">
+      <div class="panel primary">
+        <div class="cap"><span>AI rewriting the malware</span><span id="streamMeta"></span></div>
+        <pre id="stream"></pre>
+        <div class="verify" id="verify"></div>
+      </div>
+      <div class="panel">
+        <div class="cap">Iterations</div>
+        <table>
+          <thead><tr><th style="width:44px">#</th><th>step</th><th>by</th><th>YARA</th><th>behavior</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
     </div>
-    <div class="panel">
-      <div class="cap">Iterations</div>
-      <table>
-        <thead><tr><th style="width:44px">#</th><th>step</th><th>by</th><th>YARA</th><th>behavior</th></tr></thead>
-        <tbody id="rows"></tbody>
-      </table>
+    <div class="sidebar">
+      <div class="board" data-n="01">
+        <h2><span class="hnum">01</span> Signature detector</h2>
+        <div class="tool">YARA · rule seeded from generation 0</div>
+        <div class="status catch" id="sigStatus">—</div>
+        <div class="note" id="sigNote">waiting</div>
+      </div>
+      <div class="board" data-n="02">
+        <h2><span class="hnum">02</span> Behavioral detector</h2>
+        <div class="tool">ransomware-class rule · real syscalls</div>
+        <div class="status hold" id="behStatus">—</div>
+        <div class="note" id="behNote">waiting</div>
+      </div>
     </div>
   </div>
 
@@ -300,17 +382,55 @@ const $ = s => document.querySelector(s);
 const TRACK = {0:"baseline",1:"signature",2:"behavior",3:"finale",4:"promptlock"};
 let es, curKey = null, sigEvaded = false;
 
+const HEAD_SVG = `<svg width="18" height="24" viewBox="0 0 18 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="24" x2="9" y2="17" stroke-width="2"/><path d="M9 17 L2 12 L9 5 L16 12 Z" stroke-width="1.4" fill="currentColor" fill-opacity="0.1"/><path d="M9 5 L7 2 M9 5 L11 2" stroke-width="0.9"/></svg>`;
+
+function initHeads(n) {
+  const track = $("#headsTrack");
+  track.innerHTML = '';
+  for (let i = 0; i < n; i++) {
+    const el = document.createElement("div");
+    el.className = "head-icon";
+    el.id = "head-" + i;
+    el.title = "Mutation " + (i + 1);
+    el.innerHTML = HEAD_SVG;
+    track.appendChild(el);
+  }
+  $("#headsRow").classList.add("visible");
+}
+
+function updateHead(iter, yaraResult) {
+  let head = document.getElementById("head-" + (iter - 1));
+  if (!head) {
+    // replay: grow heads dynamically as verdicts arrive
+    head = document.createElement("div");
+    head.className = "head-icon";
+    head.id = "head-" + (iter - 1);
+    head.innerHTML = HEAD_SVG;
+    $("#headsTrack").appendChild(head);
+    $("#headsRow").classList.add("visible");
+  }
+  if (head.classList.contains("evaded") || head.classList.contains("caught")) return;
+  const state = yaraResult === "CLEAN" ? "evaded" : "caught";
+  head.classList.add(state);
+  head.title = "Mutation " + iter + ": " + (state === "evaded" ? "evaded signature" : "caught by YARA");
+}
+
 function reset(){
   if(es) es.close();
   curKey = null; sigEvaded = false;
   $("#stream").textContent = ""; $("#rows").innerHTML = "";
   $("#streamMeta").textContent = ""; $("#verify").textContent = "";
   $("#summary").classList.remove("show");
+  $("#headsTrack").innerHTML = ""; $("#headsRow").classList.remove("visible");
+  document.querySelector(".war-room").classList.add("running");
   setBoard("sig","catch","CATCHING","holding the line");
   setBoard("beh","hold","HOLDING","holding the line");
   $("#run").disabled = true; $("#replay").disabled = true;
 }
-function done(){ $("#run").disabled = false; $("#replay").disabled = false; }
+function done(){
+  $("#run").disabled = false; $("#replay").disabled = false;
+  document.querySelector(".war-room").classList.remove("running");
+}
 
 function setBoard(which,cls,text,note){
   const s = $("#"+which+"Status"); s.className = "status "+cls; s.textContent = text;
@@ -355,6 +475,9 @@ function onVerdict(d){
                  `<td>${pill(d.yara)}</td><td>${pill(d.falco)}</td>`;
   $("#rows").appendChild(tr);
   const body = tr.parentElement; body.scrollTop = body.scrollHeight;
+
+  if (d.track === 1 && d.iteration >= 1) updateHead(d.iteration, d.yara);
+  if (d.track === 4 && d.iteration >= 1) updateHead(d.iteration, d.yara);
 
   if(d.track===1 && d.yara==="CLEAN" && d.behavior_preserved && !sigEvaded){
     sigEvaded = true;
@@ -444,8 +567,9 @@ function openStream(url) {
 }
 
 $("#run").addEventListener("click", ()=>{
-  reset();
   const iters = $("#iters").value || 6;
+  reset();
+  initHeads(parseInt(iters));
   const fake = $("#fake").checked ? 1 : 0;
   const mode = $("#mode").value;
   es = openStream(`/run?iterations=${iters}&fake=${fake}&mode=${mode}&record=1`);
