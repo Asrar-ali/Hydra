@@ -18,4 +18,9 @@ ADV_ATTEMPTS: int = int(os.environ.get("HYDRA_ADV_ATTEMPTS", "3"))  # LLM retrie
 
 # Ollama / adversary.
 OLLAMA_HOST: str = os.environ.get("HYDRA_OLLAMA_HOST", "http://127.0.0.1:11434")
-ADVERSARY_MODEL: str = os.environ.get("HYDRA_ADVERSARY_MODEL", "jimscard/whiterabbit-neo")
+# jimscard/whiterabbit-neo (13B) was the on-theme original default, but it
+# provably can't finish Track 1: fed the exact needles left over and told
+# explicitly, three different ways, to reword them, it fixed 2 of 4 and then
+# sat on the same 2 for 5 straight rounds with zero further change (verified
+# 2026-08-18). mistral:7b clears all 4 in a single iteration and is faster.
+ADVERSARY_MODEL: str = os.environ.get("HYDRA_ADVERSARY_MODEL", "mistral:7b")

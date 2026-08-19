@@ -34,14 +34,18 @@ make dashboard  # http://localhost:8000/  ->  ▶ Run
 For the real pipeline: `make setup` (installs yara, pulls the model), then
 `make arena-build`, then run without `HYDRA_FAKE`.
 
-The default model (`jimscard/whiterabbit-neo`, 13B) is real and on-theme, but
-on a loaded box it can take a couple minutes per rewrite. If the machine's
-under memory pressure right before a live demo, `HYDRA_ADVERSARY_MODEL=mistral:7b
-make dashboard` is a faster fallback that's still genuinely LLM-driven
-(verified: same evasion story, ~30s/iteration instead of ~2min). A smaller
-model like `llama3.2:1b` is fast but too weak to reliably produce valid
-rewrites — most iterations fall through to the deterministic mutator instead
-of the LLM, so it isn't a good demo substitute.
+The default model is `mistral:7b` — fast (~30s/iteration) and reliable: it
+clears the signature rule cleanly, usually in one iteration. The original
+on-theme pick, `jimscard/whiterabbit-neo` (13B), turned out not to be able to
+finish Track 1 at all: given the exact leftover strings and told directly,
+three different ways, to reword them, it fixed 2 of 4 and then produced the
+same output for 5 straight rounds, permanently stuck 1 needle above the
+evasion threshold (verified 2026-08-18 — see `common/config.py`). It's still
+available via `HYDRA_ADVERSARY_MODEL=jimscard/whiterabbit-neo`, on-theme but a
+real risk of never evading live. A much smaller model like `llama3.2:1b` is
+fast but too weak in a different way — most iterations fall through to the
+deterministic mutator instead of the LLM, so it isn't a good demo substitute
+either.
 
 ## Two payload modes
 

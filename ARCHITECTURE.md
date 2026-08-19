@@ -470,7 +470,8 @@ results.json                     measured output (generated)
 
 ```
 HYDRA_OLLAMA_HOST=http://127.0.0.1:11434     # local Ollama
-HYDRA_ADVERSARY_MODEL=<whiterabbitneo tag>   # verify exact tag when pulling
+HYDRA_ADVERSARY_MODEL=mistral:7b             # default (§9.2-adjacent finding: whiterabbit-neo
+                                              # can't reliably finish Track 1 — README, common/config.py)
 HYDRA_RDSEC_BASE=                            # optional cloud backup (OpenAI-compatible)
 HYDRA_RDSEC_KEY=                             # from an untracked .env; never committed
 HYDRA_REAL_FALCO=1                           # opt-in real eBPF sensor instead of strace (§9.2)

@@ -1,5 +1,5 @@
 # Hydra — common tasks. See ARCHITECTURE.md and CLAUDE.md.
-MODEL ?= jimscard/whiterabbit-neo
+MODEL ?= mistral:7b
 
 .PHONY: help run run-promptlock test dashboard setup arena-build falco-build clean
 
