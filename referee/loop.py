@@ -40,8 +40,8 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESULTS = os.path.join(HERE, "results.json")
 
 
-def _seed_source() -> str:
-    with open(os.path.join(HERE, "sample", "seed.c"), encoding="utf-8") as fh:
+def _seed_source(name: str = "seed") -> str:
+    with open(os.path.join(HERE, "sample", f"{name}.c"), encoding="utf-8") as fh:
         return fh.read()
 
 
@@ -154,7 +154,8 @@ def _propose_events(prev_source, feedback, index, *, preserve, track, target,
 
 
 def run_events(cap: int, mode: str = "metamorphic",
-               custom_prompt: str | None = None) -> Iterator[tuple[str, dict]]:
+               custom_prompt: str | None = None,
+               seed_name: str = "seed") -> Iterator[tuple[str, dict]]:
     """Dispatch on payload mode (ARCHITECTURE.md §9.3):
 
     - "metamorphic" (default): the LLM REWRITES one candidate between builds,
@@ -166,11 +167,12 @@ def run_events(cap: int, mode: str = "metamorphic",
     if mode == "promptlock":
         yield from _run_events_promptlock(cap, custom_prompt=custom_prompt)
         return
-    yield from _run_events_metamorphic(cap, custom_prompt=custom_prompt)
+    yield from _run_events_metamorphic(cap, custom_prompt=custom_prompt, seed_name=seed_name)
 
 
-def _run_events_metamorphic(cap: int, custom_prompt: str | None = None) -> Iterator[tuple[str, dict]]:
-    seed = _seed_source()
+def _run_events_metamorphic(cap: int, custom_prompt: str | None = None,
+                             seed_name: str = "seed") -> Iterator[tuple[str, dict]]:
+    seed = _seed_source(seed_name)
     base = arena_run(seed)
     if not base.binary_bytes:
         yield "error", {"stage": "baseline", "message": base.error or "seed did not compile"}
