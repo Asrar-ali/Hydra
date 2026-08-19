@@ -1,459 +1,388 @@
 <!doctype html>
 <html lang="en">
 <meta charset="utf-8">
-<title>Hydra</title>
+<title>hydra // adversarial evasion lab</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  @import url('https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap');
-  @import url('https://fonts.googleapis.com/css2?family=Special+Elite&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap');
 
   :root {
-    --bg:      #010508;/* #1D2007 */
-    --panel:   #061418;
-    --panel2:  #030d12;
-    --line:    #0c2230;
-    --ink:     #b2d8e4;
-    --dim:     #2e5c6e;
-    --accent:  #007A73;
-    --good:    #1ab8a8;
-    --bad:     #e8364a;
-    --amber:   #d4a017;
-    --mono:    'Clash Display', ui-monospace, 'SF Mono', monospace;
-    --display: 'Special Elite', serif;
+    --bg:      #05080a;
+    --bg2:     #070c0f;
+    --pane:    #060d10;
+    --panel:   #060d10;   /* legacy alias */
+    --panel2:  #04090b;   /* legacy alias */
+    --line:    #123642;
+    --line2:   #0b232b;
+    --ink:     #9fe6cf;
+    --ink-dim: #3f7d73;
+    --dim:     #2c5560;
+    --accent:  #00e5c0;
+    --accent2: #16a394;
+    --good:    #23e07a;
+    --bad:     #ff4d5e;
+    --amber:   #ffbf3f;
+    --mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    --display: 'JetBrains Mono', ui-monospace, monospace;
   }
 
   * { box-sizing: border-box }
-
-  /* Snake scale background: two offset rows of arches */
+  html, body { height: 100% }
   body {
     margin: 0;
-    background-color: var(--bg);
-    background-image:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='12'%3E%3Cpath d='M0 12 Q12 0 24 12' fill='none' stroke='%23007A73' stroke-opacity='0.065' stroke-width='0.9'/%3E%3C/svg%3E"),
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='12'%3E%3Cpath d='M0 12 Q12 0 24 12' fill='none' stroke='%23007A73' stroke-opacity='0.065' stroke-width='0.9'/%3E%3C/svg%3E");
-    background-size: 24px 12px, 24px 12px;
-    background-position: 0 0, 12px 6px;
     color: var(--ink);
-    font: 17px/1.6 var(--mono);
+    font: 13px/1.5 var(--mono);
+    letter-spacing: .01em;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, rgba(0,229,192,.06), transparent 60%),
+      var(--bg);
+    background-image:
+      radial-gradient(1200px 600px at 50% -10%, rgba(0,229,192,.06), transparent 60%),
+      repeating-linear-gradient(0deg, rgba(0,229,192,.020) 0 1px, transparent 1px 3px);
   }
-
-  /* Hard accent line — no gradient */
-  body::before {
-    content: '';
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-    background: var(--accent);
-    opacity: 0.65;
-    pointer-events: none;
-    z-index: 100;
+  body::after {
+    content:''; position: fixed; inset: 0; pointer-events: none; z-index: 200;
+    box-shadow: inset 0 0 160px rgba(0,0,0,.7);
+    background: radial-gradient(120% 120% at 50% 50%, transparent 70%, rgba(0,0,0,.35));
   }
+  a { color: var(--accent) }
+  ::selection { background: rgba(0,229,192,.28); color: #eafff9 }
+  *::-webkit-scrollbar { width: 8px; height: 8px }
+  *::-webkit-scrollbar-thumb { background: var(--line) }
+  *::-webkit-scrollbar-track { background: transparent }
 
-  .wrap { max-width: 1200px; margin: 0 auto; padding: 22px 22px 60px }
+  .wrap { max-width: 1340px; margin: 0 auto; padding: 0 14px 44px }
 
-  /* ── Header ── */
-  header {
+  /* ── tmux-style status line ── */
+  .topbar {
+    display: flex; align-items: center; gap: 14px;
+    padding: 7px 12px; margin: 10px 0 0;
+    background: linear-gradient(90deg, rgba(0,229,192,.10), transparent);
+    border: 1px solid var(--line); border-left: 3px solid var(--accent); font-size: 12px;
+  }
+  .topbar .brand {
+    color: var(--accent); font-weight: 700; font-size: 15px;
+    letter-spacing: .34em; padding-left: .34em;   /* even tracking; offset trailing space */
+    text-shadow: 0 0 10px rgba(0,229,192,.5);
+  }
+  .topbar .brand b { color: #eafff9; text-shadow: 0 0 12px rgba(234,255,249,.6) }
+  .topbar .path { color: var(--ink-dim) }
+  .topbar .spacer { margin-left: auto }
+  .topbar .stat { color: var(--dim) }
+  .topbar .stat b { color: var(--ink) }
+  .led { display:inline-block; width:7px; height:7px; border-radius:50%; background: var(--dim);
+         box-shadow: 0 0 6px currentColor; vertical-align: middle; margin-right: 5px }
+  .led.on { background: var(--good); color: var(--good) }
+  .led.busy { background: var(--amber); color: var(--amber); animation: blink 1s step-end infinite }
+
+  /* ── banner ── */
+  .banner {
+    border: 1px solid var(--line); border-top: none;
+    padding: 12px 14px; background: var(--bg2);
     display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
-    padding-bottom: 20px; position: relative;
   }
-  header::after {
-    content: '';
-    position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
-    background: linear-gradient(90deg, var(--accent), var(--line) 40%, transparent);
+  .banner pre {
+    margin: 0; color: var(--accent); font-size: 11px; line-height: 1.15;
+    text-shadow: 0 0 8px rgba(0,229,192,.45); white-space: pre;
   }
-  .logo { display: flex; align-items: center; gap: 14px }
-  .hydra-icon { color: var(--accent); flex-shrink: 0 }
+  .banner .sub { color: var(--ink-dim); font-size: 12px; font-style: italic }
+  .banner .sub .k { color: var(--accent); font-style: normal }
 
-  .word {
-    font-family: var(--display);
-    font-size: 38px;
-    letter-spacing: .06em;
-    line-height: 1;
+  /* ── command bar ── */
+  .cmdbar {
+    border: 1px solid var(--line); border-top: none;
+    background: var(--pane); padding: 9px 12px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   }
-  .word b { color: var(--accent) }
+  .cmdbar .ps1 { color: var(--accent); font-weight: 700 }
+  .cmdbar .ps1 .u { color: var(--good) } .cmdbar .ps1 .h { color: var(--ink) }
+  .cmdbar .cmd { color: var(--accent) }
+  label.sub { color: var(--dim); font-size: 12px; display: inline-flex; align-items: center; gap: 6px }
+  label.sub .dd { color: var(--ink-dim) }
 
-  .tag {
-    font-family: var(--mono); color: var(--dim); font-style: italic;
-    font-size: 14px; letter-spacing: .04em; margin-top: 5px;
+  input[type=number], select, textarea {
+    background: #04090b; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 0; padding: 5px 7px; font: inherit; outline: none;
   }
-  .controls { margin-left: auto; display: flex; align-items: center; gap: 10px }
-
-  /* ── Controls ── */
-  input[type=number], select {
-    background: var(--panel2); color: var(--ink);
-    border: 1px solid var(--line); border-radius: 2px; padding: 7px;
-    font: inherit;
-  }
-  input[type=number] { width: 56px }
-  select { padding-right: 14px; cursor: pointer }
+  input[type=number]:focus, select:focus, textarea:focus { border-color: var(--accent) }
+  input[type=number] { width: 48px } select { cursor: pointer }
+  input[type=checkbox] { accent-color: var(--accent) }
 
   button {
-    font: inherit; font-weight: 600; padding: 9px 18px; border-radius: 2px;
-    cursor: pointer; border: 1px solid var(--line);
-    background: var(--panel); color: var(--ink);
-    transition: border-color .15s;
+    font: inherit; font-weight: 700; padding: 6px 13px; border-radius: 0; cursor: pointer;
+    border: 1px solid var(--line); background: #04090b; color: var(--ink);
+    letter-spacing: .03em; transition: border-color .12s, color .12s, background .12s;
   }
-  button:hover:not(:disabled) { border-color: var(--dim) }
-  button.go {
-    background: var(--accent); color: #d0f0ee; border-color: var(--accent);
-    animation: subtlePulse 2.6s ease-in-out infinite;
-  }
-  button.go:disabled { opacity: .45; cursor: default; animation: none }
-  button#replay { border-style: dashed }
+  button:hover:not(:disabled) { border-color: var(--accent); color: #eafff9 }
+  button.go { background: var(--accent); color: #012019; border-color: var(--accent);
+              box-shadow: 0 0 10px rgba(0,229,192,.4) }
+  button.go:hover:not(:disabled) { background: #2affe0 }
+  button:disabled { opacity: .4; cursor: default; box-shadow: none }
+  button.ghost { border-style: dashed }
+  .spacer { margin-left: auto }
 
-  label.sub {
-    color: var(--dim); font-family: var(--mono); font-size: 13px;
-    display: flex; align-items: center; gap: 6px;
+  /* ── TUI pane primitive ── */
+  .pane, .panel {
+    border: 1px solid var(--line); background: var(--pane); overflow: hidden;
   }
+  .bar, .panel .cap {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 10px; background: #081419; border-bottom: 1px solid var(--line);
+    font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-dim);
+  }
+  .bar .dot, .panel .cap::before {
+    content:''; width:8px; height:8px; border:1px solid var(--dim); flex-shrink: 0;
+  }
+  .bar .title, .panel .cap > span:first-child { color: var(--accent) }
+  .bar .right, .panel .cap > span:last-child:not(:first-child) {
+    margin-left:auto; color: var(--dim); text-transform: none; letter-spacing: 0
+  }
+  .panel.primary { border-color: var(--line) }
 
-  /* ── War-room layout ── */
-  .war-room {
-    display: grid;
-    grid-template-columns: 1fr 300px;
-    gap: 14px 0;
-    margin-top: 14px;
-    align-items: start;
-  }
-  .main-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding-right: 4px }
-  .sidebar   {
-    display: flex; flex-direction: column; gap: 14px;
-    border-left: 1px solid rgba(0,122,115,.2); padding-left: 18px;
-  }
+  /* ── layout ── */
+  .war-room { display: grid; grid-template-columns: 1fr 360px; gap: 10px; margin-top: 10px; align-items: start }
+  .main-col { display: flex; flex-direction: column; gap: 10px; min-width: 0 }
+  .sidebar  { display: flex; flex-direction: column; gap: 10px }
 
-  /* ── Detector boards ── */
-  .board {
-    border: 1px solid var(--line);
-    border-left: 3px solid var(--dim);
-    border-radius: 2px;
-    background: var(--panel); padding: 18px 20px;
-    transition: border-left-color .4s ease;
-    position: relative; overflow: hidden;
-  }
-  .board::before {
-    content: attr(data-n);
-    position: absolute; right: -4px; bottom: -16px;
-    transition: opacity .3s ease;
-    font-family: var(--display); font-size: 100px; line-height: 1;
-    color: #1a4a28; opacity: 0.55;
-    pointer-events: none; user-select: none;
-  }
-  .war-room.running .board::before { opacity: 0 }
-  .board:has(.status.evaded) { border-left-color: var(--bad) }
-  .board:has(.status.catch),
-  .board:has(.status.hold)   { border-left-color: var(--accent) }
-  .board:has(.status.warn)   { border-left-color: var(--amber) }
-
-  .board h2 {
-    margin: 0; font-size: 12px; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--dim); font-family: var(--mono);
-    display: flex; align-items: baseline; gap: 10px;
-  }
-  .hnum { color: var(--accent); font-size: 10px; opacity: .75 }
-  .board .tool { font-family: var(--mono); font-size: 13px; color: #6a9eaf; margin-top: 4px }
-
-  .status {
-    font-family: var(--display);
-    font-size: 44px;
-    margin: 0 0 6px;
-    padding-top: 14px;
-    border-top: 1px solid var(--line);
-    letter-spacing: .03em;
-    line-height: 1.1;
-  }
-  .status.catch  { color: var(--good) }
-  .status.evaded { color: var(--bad); animation: glitch .7s ease-out }
-  .status.hold   { color: var(--good) }
-  .status.warn   { color: var(--amber) }
-  .board .note { color: #6a9eaf; font-size: 14px; min-height: 18px; font-family: var(--mono) }
-
-  .panel {
-    border: 1px solid var(--line); border-radius: 2px;
-    background: var(--panel); overflow: hidden;
-  }
-  .panel .cap {
-    font-family: var(--mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
-    color: var(--dim); padding: 10px 14px; border-bottom: 1px solid var(--line);
-    display: flex; justify-content: space-between; align-items: center;
-  }
-  .panel.primary { border-top: 2px solid var(--accent) }
-  .panel .cap { border-left: 2px solid var(--accent) }
+  /* ── AI stream ── */
   #stream {
-    margin: 0; padding: 14px 16px; font-family: var(--mono); font-size: 13.5px;
-    line-height: 1.6; white-space: pre-wrap; word-break: break-word;
-    height: 440px; overflow: auto;
-    color: var(--ink); background: var(--panel2);
+    margin: 0; padding: 12px 14px; font-family: var(--mono); font-size: 12.5px;
+    line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+    height: 460px; overflow: auto; color: var(--ink); background: #04090b;
   }
-  #stream .note   { color: var(--amber) }
-  #stream .cursor { color: var(--accent) }
+  #stream .note { color: var(--amber) }
   #stream:empty::before {
-    content: '>_';
-    color: #1ecfa0; opacity: .5;
-    animation: blink 1.1s step-end infinite;
+    content: 'root@hydra:~$ awaiting payload stream…';
+    color: var(--ink-dim); animation: blink 1.1s step-end infinite;
   }
+  .war-room.running #stream::after { content:'▋'; color: var(--accent); animation: blink 1s step-end infinite }
+  .verify {
+    font-size: 11px; color: var(--dim); padding: 7px 14px;
+    border-top: 1px solid var(--line2); word-break: break-all; background: #081419;
+  }
+  .verify b { color: var(--ink-dim) }
 
-  /* ── Table ── */
-  table { width: 100%; border-collapse: collapse; font-size: 15px }
-  th, td { text-align: left; padding: 9px 13px; border-bottom: 1px solid var(--line) }
-  thead th {
-    font-family: var(--mono); font-size: 12px; letter-spacing: .08em;
-    text-transform: uppercase; color: #6a9eaf;
+  /* ── detector readouts ── */
+  .board {
+    padding: 12px 14px; border-bottom: 1px solid var(--line2); position: relative; transition: background .3s;
   }
-  tbody { display: block; max-height: 220px; overflow: auto }
+  .board:last-child { border-bottom: none }
+  .board h2 { margin: 0; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+              display: flex; align-items: baseline; gap: 8px }
+  .hnum { color: var(--accent); font-weight: 700 }
+  .board .tool { color: var(--ink-dim); font-size: 11px; margin: 3px 0 8px }
+  .status {
+    font-family: var(--mono); font-size: 30px; font-weight: 700; letter-spacing: .04em;
+    line-height: 1.05; margin: 0; display: flex; align-items: center; gap: 10px;
+  }
+  .status::before { content:'▉'; font-size: 16px }
+  .status.catch, .status.hold { color: var(--good) }
+  .status.evaded { color: var(--bad); animation: glitch .6s ease-out }
+  .status.warn  { color: var(--amber) }
+  .board .note { color: var(--ink-dim); font-size: 12px; margin-top: 5px; min-height: 16px }
+  .board:has(.status.evaded) { background: rgba(255,77,94,.05) }
+  .board:has(.status.catch), .board:has(.status.hold) { background: rgba(35,224,122,.035) }
+  .board:has(.status.warn) { background: rgba(255,191,63,.05) }
+
+  /* ── heads (kill strip) ── */
+  .heads-row { display: none; align-items: center; gap: 12px; padding: 10px 14px }
+  .heads-row.visible { display: flex }
+  .heads-label { color: var(--ink-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; white-space: nowrap }
+  .heads-track { display: flex; gap: 7px; flex-wrap: wrap; align-items: center }
+  .head-icon {
+    width: 26px; height: 26px; display: grid; place-items: center;
+    border: 1px solid var(--line2); color: var(--dim);
+    transition: color .3s, border-color .3s, background .3s, transform .3s;
+  }
+  .head-icon svg { display: block }
+  .head-icon.evaded { color: var(--bad); border-color: var(--bad); background: rgba(255,77,94,.1); animation: pop .4s ease-out }
+  .head-icon.caught { color: var(--good); border-color: var(--line) }
+
+  /* ── iterations table ── */
+  table { width: 100%; border-collapse: collapse; font-size: 12px }
+  th, td { text-align: left; padding: 6px 12px; border-bottom: 1px solid var(--line2) }
+  thead th { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); background: #081419 }
+  tbody { display: block; max-height: 210px; overflow: auto }
   thead, tbody tr { display: table; width: 100%; table-layout: fixed }
-  #rows tr { animation: newHead .6s ease-out }
+  #rows tr { animation: rowIn .4s ease-out }
+  #rows td:first-child { color: var(--dim) }
+  #rows td:nth-child(2) { color: var(--ink-dim) }
 
-  .pill { font-family: var(--mono); font-size: 11px; padding: 3px 8px; border-radius: 2px; white-space: nowrap }
-  .match  { color: var(--bad);   background: rgba(232,54,74,.14) }
-  .clean  { color: var(--good);  background: rgba(62,207,110,.14) }
-  .fired  { color: var(--good);  background: rgba(62,207,110,.14) }
-  .silent { color: var(--amber); background: rgba(212,160,23,.14) }
-  .by-llm     { color: var(--accent) }
-  .by-offline { color: var(--dim) }
-  .by-seed    { color: var(--dim) }
+  .pill { font-size: 10px; padding: 2px 7px; border: 1px solid currentColor; white-space: nowrap; font-weight: 700 }
+  .match { color: var(--bad) } .clean { color: var(--good) }
+  .fired { color: var(--good) } .silent { color: var(--amber) }
+  .by-llm { color: var(--accent) } .by-offline, .by-seed { color: var(--dim) }
 
-  /* ── Summary ── */
-  #summary {
-    border: 1px solid rgba(0,122,115,.5);
-    border-top: 3px solid var(--accent);
-    border-radius: 2px; background: #071e24; display: none; overflow: hidden;
-    box-shadow: 0 0 24px rgba(0,122,115,.15);
-  }
+  .legend { display:flex; flex-wrap:wrap; gap:6px 14px; padding:8px 14px; font-size:10px;
+            color: var(--dim); border-top:1px solid var(--line2); background:#081419 }
+  .legend b { font-weight: 700 }
+
+  /* ── summary ── */
+  #summary { display: none }
   #summary.show { display: block }
   .sum-cap {
-    font-family: var(--mono); font-size: 13px; letter-spacing: .1em;
-    text-transform: uppercase; color: var(--good);
-    padding: 12px 16px; border-bottom: 1px solid rgba(0,122,115,.3);
-    border-left: 3px solid var(--accent);
-    display: flex; justify-content: space-between; align-items: center;
+    display:flex; align-items:center; gap:8px; padding:5px 10px; background:#081419;
+    border-bottom:1px solid var(--line); font-size:11px; letter-spacing:.12em; text-transform:uppercase; color: var(--good);
   }
-  .sum-body { padding: 18px 20px }
-  .sum-chips { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px }
-  .chip {
-    border: 1px solid rgba(0,122,115,.35); border-radius: 2px;
-    background: rgba(0,122,115,.08); padding: 14px 18px; flex: 1; min-width: 120px;
-  }
-  .chip-val { font-family: var(--display); font-size: 38px; line-height: 1; margin-bottom: 6px }
-  .chip-val.good    { color: var(--good) }
-  .chip-val.bad     { color: var(--bad) }
-  .chip-val.neutral { color: #e0f4f8 }
-  .chip-label { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #8ecfdf }
-  #summary hr { border: none; border-top: 1px solid rgba(0,122,115,.3); margin: 14px 0 12px }
-  #summary .line { font-size: 14px; margin: 8px 0; font-family: var(--mono); color: #a8d8e8; line-height: 1.65 }
-  #summary .line b { color: #e8f8ff; font-weight: 600 }
-  .verify {
-    font-family: var(--mono); font-size: 12px; color: var(--dim);
-    margin-top: 10px; word-break: break-all; padding: 0 16px 14px;
-  }
+  .sum-cap::before { content:''; width:8px; height:8px; border:1px solid var(--dim) }
+  .sum-cap > span:last-child { margin-left:auto; color: var(--dim); text-transform:none; letter-spacing:0 }
+  .sum-body { padding: 0 }
+  .sum-chips { display: grid; grid-template-columns: repeat(3,1fr); gap: 1px; background: var(--line2) }
+  .chip { background: var(--pane); padding: 12px }
+  .chip-val { font-family: var(--mono); font-size: 26px; font-weight: 700; line-height: 1; margin-bottom: 5px }
+  .chip-val.good { color: var(--good) } .chip-val.bad { color: var(--bad) } .chip-val.neutral { color: #eafff9 }
+  .chip-label { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim) }
+  #summary hr { display: none }
+  #summary .line { font-size: 12px; margin: 7px 0; color: var(--ink-dim); line-height: 1.55; padding: 0 14px }
+  #summary .line:first-of-type { margin-top: 12px } #summary .line:last-of-type { margin-bottom: 14px }
+  #summary .line::before { content:'» '; color: var(--accent) }
+  #summary .line b { color: #eafff9; font-weight: 700 }
 
-  /* ── Robustness leaderboard ── */
-  #scorePanel { display: none; margin-top: 14px }
+  /* ── robustness leaderboard ── */
+  #scorePanel { display: none; margin-top: 10px }
   #scorePanel.show { display: block }
-  .score-caption {
-    font-family: var(--mono); font-size: 12.5px; color: var(--dim);
-    padding: 12px 16px 4px; line-height: 1.55;
-  }
+  .score-caption { font-size: 12px; color: var(--ink-dim); padding: 12px 16px 4px; line-height: 1.55 }
   .matrix-wrap { overflow-x: auto; padding: 10px 16px 4px }
-  table.matrix { border-collapse: collapse; font-size: 13px; white-space: nowrap }
+  table.matrix { border-collapse: collapse; font-size: 12px; white-space: nowrap }
   table.matrix th, table.matrix td {
-    padding: 7px 12px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line);
-    text-align: left;
+    padding: 7px 12px; border-bottom: 1px solid var(--line2); border-right: 1px solid var(--line2); text-align: left;
   }
-  table.matrix th {
-    font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
-    text-transform: uppercase; color: var(--dim);
-  }
-  table.matrix td.rule-cell { font-family: var(--mono); color: var(--ink); font-weight: 600 }
+  table.matrix th { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim) }
+  table.matrix td.rule-cell { color: var(--ink); font-weight: 700 }
   table.matrix tr.testing td.rule-cell { color: var(--dim); font-style: italic }
-  .mx-cell { font-family: var(--mono); font-size: 11px; text-align: center; padding: 6px 10px; border-radius: 2px }
-  .mx-fired  { color: var(--good); background: rgba(62,207,110,.14) }
-  .mx-silent { color: var(--bad);  background: rgba(232,54,74,.14) }
+  .mx-cell { font-size: 10px; text-align: center; padding: 6px 10px; font-weight: 700 }
+  .mx-fired  { color: var(--good); background: rgba(35,224,122,.12) }
+  .mx-silent { color: var(--bad);  background: rgba(255,77,94,.12) }
   .mx-na     { color: var(--dim) }
   .lb-lines { padding: 6px 16px 16px; display: flex; flex-direction: column; gap: 6px }
-  .lb-line { font-family: var(--mono); font-size: 13px; color: var(--ink) }
+  .lb-line { font-size: 12px; color: var(--ink) }
   .lb-line.error { color: var(--bad) }
-  .lb-line .depth-num  { color: var(--bad);  font-weight: 600 }
-  .lb-line .depth-inf  { color: var(--good); font-weight: 600 }
+  .lb-line .depth-num { color: var(--bad); font-weight: 700 }
+  .lb-line .depth-inf { color: var(--good); font-weight: 700 }
   .llm-badge {
-    font-family: var(--mono); font-size: 10.5px; margin-left: 8px; padding: 2px 6px;
-    border-radius: 2px; color: var(--accent); background: rgba(0,122,115,.14);
-    border: 1px solid rgba(0,122,115,.3);
+    font-size: 10px; margin-left: 8px; padding: 2px 6px; color: var(--accent);
+    background: rgba(0,229,192,.12); border: 1px solid rgba(0,229,192,.3);
   }
-  .score-headline {
-    font-family: var(--display); font-size: 20px; color: var(--ink);
-    padding: 4px 16px 14px; letter-spacing: .02em;
-  }
+  .score-headline { font-size: 15px; font-weight: 700; color: var(--ink); padding: 6px 16px 14px; letter-spacing: .02em }
+  .score-headline::before { content:'══▶ '; color: var(--dim) }
   .score-headline.all-robust { color: var(--good) }
   .score-headline.has-evasions { color: var(--bad) }
 
-  /* ── Animations ── */
-  @keyframes subtlePulse {
-    0%, 100% { box-shadow: 0 0 4px rgba(0,122,115,.4) }
-    50%       { box-shadow: 0 0 14px rgba(0,122,115,.65) }
-  }
-
-  @keyframes newHead {
-    0%   { opacity: 0; background: rgba(0,122,115,.18) }
-    55%  { opacity: 1; background: rgba(0,122,115,.04) }
-    100% { opacity: 1; background: transparent }
-  }
-
+  /* ── animations ── */
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  @keyframes rowIn { 0%{opacity:0; background:rgba(0,229,192,.14)} 100%{opacity:1; background:transparent} }
+  @keyframes pop { 0%{transform:scale(.4)} 65%{transform:scale(1.25)} 100%{transform:scale(1)} }
   @keyframes glitch {
-    0%   { transform: translate(0);         clip-path: inset(0 0 0 0) }
-    8%   { transform: translate(-4px, 1px); clip-path: inset(15% 0 55% 0); opacity: .6 }
-    18%  { transform: translate(4px, -2px); clip-path: inset(65% 0 4% 0) }
-    28%  { transform: translate(-2px, 3px); clip-path: inset(45% 0 25% 0); opacity: 1 }
-    42%  { transform: translate(3px, -1px); clip-path: inset(0 0 75% 0) }
-    58%  { transform: translate(-1px, 0);   clip-path: inset(0 0 0 0) }
-    78%  { transform: translate(0);         opacity: .85 }
-    100% { transform: translate(0);         clip-path: inset(0 0 0 0); opacity: 1 }
+    0%{transform:translate(0); clip-path:inset(0)}
+    20%{transform:translate(-3px,1px); clip-path:inset(20% 0 50% 0); opacity:.7}
+    40%{transform:translate(3px,-1px); clip-path:inset(60% 0 8% 0)}
+    60%{transform:translate(-1px,1px); clip-path:inset(40% 0 30% 0)}
+    100%{transform:translate(0); clip-path:inset(0); opacity:1}
   }
-
-  /* ── Head tracker ── */
-  .heads-row {
-    display: none;
-    align-items: center;
-    gap: 16px;
-    padding: 12px 0 10px;
-    border-bottom: 1px solid var(--line);
-  }
-  .heads-row.visible { display: flex }
-  .heads-label {
-    font-family: var(--mono); font-size: 14px; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--dim); white-space: nowrap; flex-shrink: 0;
-  }
-  .heads-track { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end }
-  .head-icon {
-    color: var(--dim); opacity: .25;
-    transition: color .3s, opacity .3s, transform .35s;
-    cursor: default; position: relative;
-  }
-  .head-icon svg { display: block }
-  .head-icon.evaded {
-    color: var(--accent); opacity: 1;
-    animation: headGrow .45s ease-out;
-  }
-  .head-icon.caught {
-    color: var(--bad); opacity: .4;
-    transform: rotate(14deg);
-  }
-
-  @keyframes headGrow {
-    0%   { transform: scale(.45) translateY(4px); opacity: 0 }
-    65%  { transform: scale(1.18) translateY(-1px) }
-    100% { transform: scale(1) translateY(0); opacity: 1 }
-  }
-
-  @keyframes blink {
-    0%, 100% { opacity: .35 }
-    50%       { opacity: 0 }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation: none !important; transition: none !important }
-  }
+  @media (prefers-reduced-motion: reduce){ *,*::before,*::after{animation:none!important;transition:none!important} }
+  @media (max-width: 900px){ .war-room{ grid-template-columns: 1fr } }
 </style>
 
 <div class="wrap">
-  <header>
-    <div class="logo">
-      <!-- Two-headed serpent mark with scale notches -->
-      <svg class="hydra-icon" width="48" height="38" viewBox="0 0 48 38" fill="none"
-           stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
-           xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <!-- Left neck with scale notches -->
-        <path d="M24 38 C22 28 10 24 6 15" stroke-width="2.5"/>
-        <path d="M19 32 L16 30" stroke-width="1" opacity="0.5"/>
-        <path d="M15 27 L12 25" stroke-width="1" opacity="0.5"/>
-        <path d="M11 22 L8 20" stroke-width="1" opacity="0.5"/>
-        <!-- Right neck with scale notches -->
-        <path d="M24 38 C26 28 38 24 42 15" stroke-width="2.5"/>
-        <path d="M29 32 L32 30" stroke-width="1" opacity="0.5"/>
-        <path d="M33 27 L36 25" stroke-width="1" opacity="0.5"/>
-        <path d="M37 22 L40 20" stroke-width="1" opacity="0.5"/>
-        <!-- Left head — elongated diamond -->
-        <path d="M6 15 L1 10 L6 4 L11 10 Z" stroke-width="1.5" fill="rgba(0,122,115,0.15)"/>
-        <!-- Right head — elongated diamond -->
-        <path d="M42 15 L37 10 L42 4 L47 10 Z" stroke-width="1.5" fill="rgba(0,122,115,0.15)"/>
-        <!-- Left tongue fork -->
-        <path d="M6 4 L4 1 M6 4 L8 1" stroke-width="1"/>
-        <!-- Right tongue fork -->
-        <path d="M42 4 L40 1 M42 4 L44 1" stroke-width="1"/>
-      </svg>
-      <div>
-        <div class="word">HY<b>D</b>RA</div>
-        <div class="tag">adversarial evasion lab — kill one signature, it grows a new head</div>
-      </div>
-    </div>
-    <div class="controls">
-      <label class="sub">mode
-        <select id="mode">
-          <option value="metamorphic">metamorphic (build-time rewrite)</option>
-          <option value="promptlock">promptlock (runtime-generated)</option>
-        </select>
-      </label>
-      <label class="sub" id="seedLabel">seed
-        <select id="seed"></select>
-      </label>
-      <label class="sub">iters <input id="iters" type="number" min="1" max="20" value="6"></label>
-      <label class="sub"><input id="fake" type="checkbox"> fake</label>
-      <button id="editPrompt">Edit prompt</button>
-      <button id="replay">Replay</button>
-      <button id="run" class="go">▶ Run</button>
-      <button id="score">⚑ Score rules</button>
-    </div>
-  </header>
 
-  <div id="promptPanel" class="panel" style="display:none; margin-top:14px;">
-    <div class="cap">
-      <span>System prompt · <span id="promptMode">metamorphic</span></span>
-      <button id="closePrompt" style="padding:2px 8px; font-size:12px;">✕</button>
-    </div>
-    <textarea id="promptText" style="
-      display:block; width:100%; box-sizing:border-box;
-      background:var(--panel2); color:var(--ink); border:none; outline:none;
-      font:13px/1.55 var(--mono); padding:14px 16px; resize:vertical; min-height:120px;
-    "></textarea>
+  <div class="topbar">
+    <span class="brand">HY<b>D</b>RA</span>
+    <span class="path">~/adversarial-evasion-lab</span>
+    <span class="spacer"></span>
+    <span class="stat"><span class="led on"></span>detectors: <b>YARA</b> + <b>Falco</b></span>
+    <span class="stat">│ mode: <b id="tbMode">metamorphic</b></span>
+    <span class="stat">│ <span class="led" id="tbLed"></span><b id="tbState">idle</b></span>
   </div>
 
-  <div class="heads-row" id="headsRow">
-    <span class="heads-label">Heads</span>
-    <div class="heads-track" id="headsTrack"></div>
+  <div class="banner">
+    <pre>
+ ┓┏┓┏┓┳┓┏┓
+ ┣┫┗┫┃┃┣┫┣┫
+ ┛┗┗┛┻┛┛┗┛┗</pre>
+    <div class="sub">
+      a local LLM rewrites benign, ransomware-shaped code to slip past two real detectors.<br>
+      <span class="k">signature</span> (YARA) dies in a few mutations · <span class="k">behavior</span> (Falco) never does — unless it stops being malware.
+    </div>
+  </div>
+
+  <div class="cmdbar">
+    <span class="ps1"><span class="u">root</span>@<span class="h">hydra</span>:~$</span>
+    <span class="cmd">./run</span>
+    <label class="sub"><span class="dd">--mode</span>
+      <select id="mode">
+        <option value="metamorphic">metamorphic (build-time rewrite)</option>
+        <option value="promptlock">promptlock (runtime-generated)</option>
+      </select>
+    </label>
+    <label class="sub" id="seedLabel"><span class="dd">--seed</span>
+      <select id="seed"></select>
+    </label>
+    <label class="sub"><span class="dd">--iters</span> <input id="iters" type="number" min="1" max="20" value="6"></label>
+    <label class="sub"><input id="fake" type="checkbox"> <span class="dd">--fake</span></label>
+    <span class="spacer"></span>
+    <button id="editPrompt" class="ghost">edit prompt</button>
+    <button id="replay" class="ghost">replay</button>
+    <button id="run" class="go">▶ execute</button>
+    <button id="score" class="ghost">⚑ score rules</button>
+  </div>
+
+  <div id="promptPanel" class="panel" style="display:none; margin-top:10px;">
+    <div class="cap"><span>system prompt</span><span>· <span id="promptMode">metamorphic</span> · <button id="closePrompt" style="padding:0 6px; font-size:11px; border:none; background:none; color:var(--dim)">[x]</button></span></div>
+    <textarea id="promptText" style="display:block; width:100%; box-sizing:border-box; border:none; padding:14px 16px; resize:vertical; min-height:120px;"></textarea>
   </div>
 
   <div class="war-room">
     <div class="main-col">
       <div class="panel primary">
-        <div class="cap"><span>AI rewriting the malware</span><span id="streamMeta"></span></div>
+        <div class="cap"><span>adversary::rewrite</span><span id="streamMeta">idle</span></div>
         <pre id="stream"></pre>
-        <div class="verify" id="verify"></div>
+        <div class="verify" id="verify"><b>sha256:</b> —</div>
       </div>
       <div class="panel">
-        <div class="cap">Iterations</div>
+        <div class="cap"><span>iterations.log</span><span>tail -f</span></div>
         <table>
-          <thead><tr><th style="width:44px">#</th><th>step</th><th>by</th><th>YARA</th><th>behavior</th></tr></thead>
+          <thead><tr><th style="width:40px">#</th><th>step</th><th style="width:68px">by</th><th style="width:76px">yara</th><th style="width:88px">behavior</th></tr></thead>
           <tbody id="rows"></tbody>
         </table>
+        <div class="legend">
+          <span><b class="match">MATCH</b> sig hit</span>
+          <span><b class="clean">CLEAN</b> sig blind</span>
+          <span><b class="fired">FIRED</b> behavior caught</span>
+          <span><b class="silent">SILENT</b> behavior missed</span>
+        </div>
       </div>
     </div>
     <div class="sidebar">
-      <div class="board" data-n="01">
-        <h2><span class="hnum">01</span> Signature detector</h2>
-        <div class="tool">YARA · rule seeded from generation 0</div>
-        <div class="status catch" id="sigStatus">—</div>
-        <div class="note" id="sigNote">waiting</div>
+      <div class="panel">
+        <div class="cap"><span>detectors.status</span><span>live</span></div>
+        <div class="board" data-n="01">
+          <h2><span class="hnum">[01]</span> signature detector</h2>
+          <div class="tool">yara · rule seeded from generation 0</div>
+          <div class="status catch" id="sigStatus">STANDBY</div>
+          <div class="note" id="sigNote">waiting for run</div>
+        </div>
+        <div class="board" data-n="02">
+          <h2><span class="hnum">[02]</span> behavioral detector</h2>
+          <div class="tool">ransomware-class rule · real syscalls</div>
+          <div class="status hold" id="behStatus">STANDBY</div>
+          <div class="note" id="behNote">waiting for run</div>
+        </div>
       </div>
-      <div class="board" data-n="02">
-        <h2><span class="hnum">02</span> Behavioral detector</h2>
-        <div class="tool">ransomware-class rule · real syscalls</div>
-        <div class="status hold" id="behStatus">—</div>
-        <div class="note" id="behNote">waiting</div>
+
+      <div class="panel" id="headsPane" style="display:none">
+        <div class="cap"><span>heads::mutations</span><span id="headsCount"></span></div>
+        <div class="heads-row visible" id="headsRow">
+          <span class="heads-label">kill</span>
+          <div class="heads-track" id="headsTrack"></div>
+        </div>
       </div>
-      <div id="summary"></div>
+
+      <div class="panel" id="summary"></div>
     </div>
   </div>
 
   <div class="panel" id="scorePanel">
-    <div class="cap"><span>Detection-rule robustness leaderboard</span><span id="scoreMeta"></span></div>
+    <div class="cap"><span>robustness leaderboard</span><span id="scoreMeta"></span></div>
     <div class="score-caption">An AI adversary attacks each behavioral rule with a toolbox of syscall mechanisms. Green = rule fired (caught); red = evaded while behavior was preserved. Depth = how many mechanisms it took.</div>
     <div class="matrix-wrap">
       <table class="matrix" id="matrixTable">
@@ -478,91 +407,86 @@ const PROMPTS = {
 (function initPromptEditor() {
   const panel = $("#promptPanel"), ta = $("#promptText"), lbl = $("#promptMode");
   ta.value = PROMPTS[$("#mode").value];
-
   $("#editPrompt").addEventListener("click", () => {
-    const open = panel.style.display === "none";
-    panel.style.display = open ? "block" : "none";
+    panel.style.display = panel.style.display === "none" ? "block" : "none";
   });
   $("#closePrompt").addEventListener("click", () => { panel.style.display = "none"; });
-
   $("#mode").addEventListener("change", () => {
     const m = $("#mode").value;
-    lbl.textContent = m;
+    lbl.textContent = m; $("#tbMode").textContent = m;
     const cur = ta.value.trim();
-    if (cur === PROMPTS.metamorphic.trim() || cur === PROMPTS.promptlock.trim()) {
-      ta.value = PROMPTS[m];
-    }
+    if (cur === PROMPTS.metamorphic.trim() || cur === PROMPTS.promptlock.trim()) ta.value = PROMPTS[m];
     $("#seedLabel").style.display = m === "promptlock" ? "none" : "";
   });
 })();
 
 (function initSeedPicker() {
-  const sel = $("#seed"), lbl = $("#seedLabel");
-  fetch("/seeds")
-    .then(r => r.json())
-    .then(seeds => {
-      seeds.forEach(s => {
-        const opt = document.createElement("option");
-        opt.value = s.name;
-        opt.textContent = s.label;
-        sel.appendChild(opt);
-      });
-    })
-    .catch(() => {
-      /* server not running yet — leave empty; run button will still work */
+  const sel = $("#seed");
+  fetch("/seeds").then(r => r.json()).then(seeds => {
+    seeds.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s.name; opt.textContent = s.label; sel.appendChild(opt);
     });
-  /* hide seed picker in promptlock mode */
-  lbl.style.display = $("#mode").value === "promptlock" ? "none" : "";
+  }).catch(() => {});
+  $("#seedLabel").style.display = $("#mode").value === "promptlock" ? "none" : "";
 })();
 
-const HEAD_SVG = `<svg width="18" height="24" viewBox="0 0 18 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="24" x2="9" y2="17" stroke-width="2"/><path d="M9 17 L2 12 L9 5 L16 12 Z" stroke-width="1.4" fill="currentColor" fill-opacity="0.1"/><path d="M9 5 L7 2 M9 5 L11 2" stroke-width="0.9"/></svg>`;
+const HEAD_SVG = `<svg width="16" height="20" viewBox="0 0 18 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="24" x2="9" y2="17" stroke-width="2"/><path d="M9 17 L2 12 L9 5 L16 12 Z" stroke-width="1.4" fill="currentColor" fill-opacity="0.1"/><path d="M9 5 L7 2 M9 5 L11 2" stroke-width="0.9"/></svg>`;
 
 function initHeads(n) {
   const track = $("#headsTrack");
   track.innerHTML = '';
   for (let i = 0; i < n; i++) {
     const el = document.createElement("div");
-    el.className = "head-icon";
-    el.id = "head-" + i;
-    el.title = "Mutation " + (i + 1);
-    el.innerHTML = HEAD_SVG;
+    el.className = "head-icon"; el.id = "head-" + i;
+    el.title = "mutation " + (i + 1); el.innerHTML = HEAD_SVG;
     track.appendChild(el);
   }
-  $("#headsRow").classList.add("visible");
+  $("#headsPane").style.display = "";
+  $("#headsCount").textContent = "0/" + n;
 }
 
 function updateHead(iter, yaraResult) {
   let head = document.getElementById("head-" + (iter - 1));
   if (!head) {
-    // replay: grow heads dynamically as verdicts arrive
     head = document.createElement("div");
-    head.className = "head-icon";
-    head.id = "head-" + (iter - 1);
+    head.className = "head-icon"; head.id = "head-" + (iter - 1);
     head.innerHTML = HEAD_SVG;
     $("#headsTrack").appendChild(head);
-    $("#headsRow").classList.add("visible");
+    $("#headsPane").style.display = "";
   }
   if (head.classList.contains("evaded") || head.classList.contains("caught")) return;
   const state = yaraResult === "CLEAN" ? "evaded" : "caught";
   head.classList.add(state);
-  head.title = "Mutation " + iter + ": " + (state === "evaded" ? "evaded signature" : "caught by YARA");
+  head.title = "mutation " + iter + ": " + (state === "evaded" ? "evaded signature" : "caught by YARA");
+  const cells = $("#headsTrack").children.length;
+  const done = $("#headsTrack").querySelectorAll(".evaded,.caught").length;
+  $("#headsCount").textContent = done + "/" + cells;
+}
+
+function setState(txt, busy) {
+  $("#tbState").textContent = txt;
+  $("#tbLed").className = "led " + (busy ? "busy" : (txt === "done" ? "on" : ""));
 }
 
 function reset(){
   if(es) es.close();
   curKey = null; sigEvaded = false;
   $("#stream").textContent = ""; $("#rows").innerHTML = "";
-  $("#streamMeta").textContent = ""; $("#verify").textContent = "";
+  $("#streamMeta").textContent = "running"; $("#verify").innerHTML = "<b>sha256:</b> —";
   $("#summary").classList.remove("show");
-  $("#headsTrack").innerHTML = ""; $("#headsRow").classList.remove("visible");
+  $("#headsTrack").innerHTML = ""; $("#headsPane").style.display = "none";
   document.querySelector(".war-room").classList.add("running");
   setBoard("sig","catch","CATCHING","holding the line");
   setBoard("beh","hold","HOLDING","holding the line");
+  setState("running", true);
   $("#run").disabled = true; $("#replay").disabled = true;
 }
 function done(){
   $("#run").disabled = false; $("#replay").disabled = false;
   document.querySelector(".war-room").classList.remove("running");
+  $("#streamMeta").textContent = "done";
+  if($("#tbState").textContent === "running" || $("#tbState").textContent === "replay") setState("done", false);
 }
 
 function setBoard(which,cls,text,note){
@@ -580,11 +504,9 @@ function onToken(d){
   if(key !== curKey){
     curKey = key;
     $("#stream").textContent = "";
-    $("#streamMeta").textContent = `${TRACK[d.track]} · iteration ${d.iteration}`;
+    $("#streamMeta").textContent = `${TRACK[d.track]} · iter ${d.iteration}`;
   }
-  const el = $("#stream");
-  el.textContent += d.text;
-  el.scrollTop = el.scrollHeight;
+  const el = $("#stream"); el.textContent += d.text; el.scrollTop = el.scrollHeight;
 }
 function onNote(d){
   const el = $("#stream");
@@ -596,9 +518,9 @@ function onDone(d){
   if(d.provenance !== "llm"){
     const key = d.track+"/"+d.iteration;
     if(key !== curKey){ curKey = key; $("#stream").textContent = d.source || ""; }
-    $("#streamMeta").textContent = `${TRACK[d.track]} · iteration ${d.iteration} · ${d.provenance}`;
+    $("#streamMeta").textContent = `${TRACK[d.track]} · iter ${d.iteration} · ${d.provenance}`;
   }
-  if(d.sha256) $("#verify").textContent = "sha256(binary): " + d.sha256;
+  if(d.sha256) $("#verify").innerHTML = "<b>sha256:</b> " + d.sha256;
 }
 
 function onVerdict(d){
@@ -620,13 +542,9 @@ function onVerdict(d){
     if(d.falco==="SILENT" && !d.behavior_preserved)
       setBoard("beh","warn","HOLDING*","* only evaded by ceasing to be ransomware");
   } else if(d.track===4){
-    if(d.iteration===0){
-      setBoard("sig","catch","CATCHING","rule seeded on generation 0");
-    } else if(d.yara==="CLEAN"){
-      setBoard("sig","evaded","MISSED",`run ${d.iteration}: fresh script, gen-0 rule didn't match`);
-    } else {
-      setBoard("sig","catch","CAUGHT",`run ${d.iteration}: matched again`);
-    }
+    if(d.iteration===0) setBoard("sig","catch","CATCHING","rule seeded on generation 0");
+    else if(d.yara==="CLEAN") setBoard("sig","evaded","MISSED",`run ${d.iteration}: fresh script, gen-0 rule didn't match`);
+    else setBoard("sig","catch","CAUGHT",`run ${d.iteration}: matched again`);
     if(d.falco==="FIRED") setBoard("beh","hold","HOLDING","fires on every regenerated script — behavior never changes");
   } else if(d.falco==="FIRED"){
     setBoard("beh","hold","HOLDING","every mutation still caught");
@@ -636,7 +554,6 @@ function onVerdict(d){
 function onSummary(d){
   const s = $("#summary");
   const mode = d.mode || "metamorphic";
-
   let chipsHtml, linesHtml;
   if(mode === "promptlock"){
     const runs = d.total_iterations - 1;
@@ -646,37 +563,37 @@ function onSummary(d){
       {val: d.behavioral_evasions_while_behavior_preserved, label: "behavioral evasions", c: d.behavioral_evasions_while_behavior_preserved > 0 ? "bad" : "good"},
     ].map(({val,label,c}) => `<div class="chip"><div class="chip-val ${c}">${val}</div><div class="chip-label">${label}</div></div>`).join("");
     linesHtml =
-      `<div class="line">Signature: <b>missed ${d.signature_evasions_by_regeneration}/${runs} regenerated runs</b> — a fresh AI-written script every execution means the byte rule seeded on run 0 doesn't reliably reapply.</div>`+
-      `<div class="line">Behavior: <b>${d.behavioral_evasions_while_behavior_preserved} evasions</b> while the behavior was preserved — the same behavioral rule fires on every regenerated script, because the ransomware-shaped action itself never changes.</div>`+
-      `<div class="line">Per-run AI generation (PromptLock-style) breaks signatures even harder than build-time rewriting. Behavior still tells the truth.</div>`;
+      `<div class="line">signature: <b>missed ${d.signature_evasions_by_regeneration}/${runs} regenerated runs</b> — a fresh AI-written script every execution means the byte rule seeded on run 0 doesn't reliably reapply.</div>`+
+      `<div class="line">behavior: <b>${d.behavioral_evasions_while_behavior_preserved} evasions</b> — the same behavioral rule fires on every regenerated script; the ransomware-shaped action never changes.</div>`+
+      `<div class="line">per-run generation breaks signatures even harder than build-time rewriting. behavior still tells the truth.</div>`;
   } else {
     const sigE = d.signature_evaded;
     chipsHtml = [
       {val: d.total_iterations, label: "iterations", c: "neutral"},
-      {val: sigE ? d.iterations_to_evade_signature : "—", label: "mutations to break sig", c: sigE ? "bad" : "good"},
+      {val: sigE ? d.iterations_to_evade_signature : "—", label: "muts to break sig", c: sigE ? "bad" : "good"},
       {val: d.behavioral_evasions_while_behavior_preserved, label: "behavioral evasions", c: d.behavioral_evasions_while_behavior_preserved > 0 ? "bad" : "good"},
     ].map(({val,label,c}) => `<div class="chip"><div class="chip-val ${c}">${val}</div><div class="chip-label">${label}</div></div>`).join("");
     linesHtml =
-      `<div class="line">Signature <b>${sigE ? "evaded after "+d.iterations_to_evade_signature+" mutation"+(d.iterations_to_evade_signature>1?"s":"") : "held, never evaded"}</b>. Change the bytes and the rule goes blind.</div>`+
-      `<div class="line">Behavioral rule fired every time. <b>${d.behavioral_evasions_while_behavior_preserved} evasions</b> while the program still behaved like ransomware.</div>`+
-      `<div class="line">${d.behavioral_evasion_required_breaking_behavior ? "The only way out was to <b>stop being ransomware</b>. Behavior tells the truth." : "Behavioral rule held throughout."}</div>`;
+      `<div class="line">signature <b>${sigE ? "evaded after "+d.iterations_to_evade_signature+" mutation"+(d.iterations_to_evade_signature>1?"s":"") : "held, never evaded"}</b> — change the bytes and the rule goes blind.</div>`+
+      `<div class="line">behavioral rule fired every time. <b>${d.behavioral_evasions_while_behavior_preserved} evasions</b> while the program still behaved like ransomware.</div>`+
+      `<div class="line">${d.behavioral_evasion_required_breaking_behavior ? "the only way out was to <b>stop being ransomware</b>. behavior tells the truth." : "behavioral rule held throughout."}</div>`;
   }
-
   s.innerHTML =
-    `<div class="sum-cap"><span>Run complete</span><span>${mode}</span></div>`+
-    `<div class="sum-body"><div class="sum-chips">${chipsHtml}</div><hr>${linesHtml}</div>`;
+    `<div class="sum-cap"><span>run.summary</span><span>${mode}</span></div>`+
+    `<div class="sum-body"><div class="sum-chips">${chipsHtml}</div>${linesHtml}</div>`;
   s.classList.add("show");
 }
 
 function wire(src){
   src.addEventListener("baseline", e=>{ const d=JSON.parse(e.data);
-    $("#verify").textContent = "sha256(binary): " + d.sha256; });
+    if ($("#stream").textContent.startsWith("root@hydra:~$ contacting")) $("#stream").textContent = "";
+    $("#verify").innerHTML = "<b>sha256:</b> " + d.sha256; });
   src.addEventListener("rewrite_token", e=>onToken(JSON.parse(e.data)));
   src.addEventListener("rewrite_note",  e=>onNote(JSON.parse(e.data)));
   src.addEventListener("rewrite_done",  e=>onDone(JSON.parse(e.data)));
   src.addEventListener("verdict",       e=>onVerdict(JSON.parse(e.data)));
   src.addEventListener("summary",       e=>{ onSummary(JSON.parse(e.data)); src.close(); done(); });
-  src.addEventListener("error",         e=>{ setBoard("sig","warn","ERROR",JSON.parse(e.data).message); src.close(); done(); });
+  src.addEventListener("error",         e=>{ setBoard("sig","warn","ERROR",JSON.parse(e.data).message); setState("error",false); src.close(); done(); });
   src.onerror = ()=>{ done(); };
 }
 
@@ -687,7 +604,6 @@ function openStream(url) {
     close() { ctrl.abort(); },
   };
   Object.defineProperty(src, 'onerror', { set(fn) { src._onerror = fn; } });
-
   (async () => {
     try {
       const resp = await fetch(url, { signal: ctrl.signal });
@@ -709,11 +625,8 @@ function openStream(url) {
           if (listeners[name]) listeners[name]({ data });
         }
       }
-    } catch(e) {
-      if (e.name !== 'AbortError' && src._onerror) src._onerror(e);
-    }
+    } catch(e) { if (e.name !== 'AbortError' && src._onerror) src._onerror(e); }
   })();
-
   return src;
 }
 
@@ -732,14 +645,11 @@ function resetScore(){
 
 function onRuleStart(d){
   const tr = document.createElement("tr");
-  tr.id = "mxrow-" + d.rule;
-  tr.className = "testing";
+  tr.id = "mxrow-" + d.rule; tr.className = "testing";
   tr.innerHTML = `<td class="rule-cell">${d.rule}</td>`;
   $("#matrixRows").appendChild(tr);
-
   const line = document.createElement("div");
-  line.id = "lbline-" + d.rule;
-  line.className = "lb-line";
+  line.id = "lbline-" + d.rule; line.className = "lb-line";
   line.textContent = `${d.rule} — testing…`;
   $("#leaderboardLines").appendChild(line);
 }
@@ -761,7 +671,6 @@ function onRuleVerdict(d){
     const cells = matrixCols.map(m => mxCell(by[m] || "—")).join("");
     tr.innerHTML = `<td class="rule-cell">${d.rule}</td>${cells}`;
   }
-
   const line = document.getElementById("lbline-" + d.rule);
   if (line){
     const badge = d.llm_evaded ? `<span class="llm-badge">🤖 LLM</span>` : "";
@@ -822,16 +731,16 @@ $("#run").addEventListener("click", ()=>{
   const seedEl = $("#seed");                       // optional dropdown; may be absent
   const seed = (seedEl && seedEl.value) || "seed"; // never throw if it isn't there
   // Real mode calls a local model + arena and can sit for ~30s before the first
-  // token — show that so an in-flight run never looks dead. Cleared on baseline.
+  // token — show that so an in-flight run never looks dead. Cleared on baseline/token.
   if (!fake) {
-    $("#stream").textContent = "▶ starting — contacting the model (the first token can take ~30s in real mode)…";
+    $("#stream").textContent = "root@hydra:~$ contacting the model… (first token can take ~30s in real mode)";
     $("#streamMeta").textContent = "starting";
   }
   es = openStream(`/run?iterations=${iters}&fake=${fake}&mode=${mode}&seed=${seed}&record=1&prompt=${prompt}`);
   wire(es);
 });
 $("#replay").addEventListener("click", ()=>{
-  reset(); es = openStream("/replay"); wire(es);
+  reset(); setState("replay", true); es = openStream("/replay"); wire(es);
 });
 done();
 </script>
