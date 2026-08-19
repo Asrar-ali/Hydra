@@ -18,3 +18,4 @@ detectors/rules/*.yar
 
 # os
 .DS_Store
+scorecard.json

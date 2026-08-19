@@ -405,7 +405,8 @@ Validation, all gating before a demo:
 `GET /run` streams `text/event-stream`. Query params: `iterations`, `fake=1`
 (no container), `record=1`, `mode=metamorphic|promptlock` (default
 `metamorphic`; §9.3). Named events with JSON `data`. Consumers ignore unknown
-fields.
+fields. `GET /run` also accepts `mode=robustness`, which runs the
+detection-rule robustness scorer instead of the adversarial loop.
 
 | Event | Payload | Meaning |
 |---|---|---|
@@ -416,6 +417,9 @@ fields.
 | `verdict` | `{ "iteration", "track", "target_detector", "source_sha256", "compiled", "behavior_preserved", "files_written", "mean_entropy", "yara": "MATCH\|CLEAN", "falco": "FIRED\|SILENT", "provenance" }` | Detector results + arena facts for the candidate (also one row of `results.json`). |
 | `summary` | the summary object in section 10 | End of the run. |
 | `error` | `{ "stage": str, "message": str }` | The seed did not compile; the run cannot start. |
+| `rule_start` | `{ "rule": str }` | Robustness scorer began evaluating a named rule. |
+| `rule_verdict` | `{ "rule", "evaded": bool, "evasion_depth": int\|null, "mechanism": str\|null, "behavior_preserved": bool }` | Result for one rule: the mechanism (if any) that evaded it while behavior was preserved, and at what depth. |
+| `scorecard` | the Scorecard object (§10) | End of a robustness-scorer run: per-rule evasion depths (the leaderboard). |
 
 `GET /replay` emits the same sequence from a recorded run, so the dashboard code
 path is identical live or replayed.

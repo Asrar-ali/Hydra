@@ -28,6 +28,9 @@ class ArenaObservation:
     encrypted_files: int = 0                    # distinct files whose final write is high-entropy
     encrypted_in_place: int = 0                 # existing files overwritten in place, high-entropy (naive-rule signal)
     encrypted_outcome: int = 0                  # victims ending high-entropy by any mechanism (behavior class)
+    max_encrypted_per_pid: int = 0              # most victims a single pid encrypted (per_process rule)
+    max_rate_in_window: int = 0                 # most victims encrypted within the rate window T (rate_windowed rule)
+    encrypted_outcome_fs: int = 0               # victims ending high-entropy measured from filesystem bytes (Phase 3; 0 until then)
     mean_entropy: float = 0.0                   # bits/byte, 0..8
     syscalls: list[str] = field(default_factory=list)
     stdout: str = ""
@@ -64,3 +67,37 @@ class IterationResult:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+@dataclass
+class RuleScore:
+    """One row of a robustness scorecard: how a single behavioral rule fared
+    against the mechanism toolbox. See ARCHITECTURE.md §11 (`rule_verdict`,
+    `scorecard` events)."""
+
+    rule: str
+    evaded: bool
+    evasion_depth: Optional[int]
+    mechanism_that_evaded: Optional[str]
+    behavior_preserved_at_evasion: bool
+    provenance: Provenance
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class Scorecard:
+    """End-of-run leaderboard for the robustness-scorer mode. See
+    ARCHITECTURE.md §11 (`scorecard` event)."""
+
+    mode: str
+    total_iterations: int
+    rules: list[RuleScore] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "mode": self.mode,
+            "total_iterations": self.total_iterations,
+            "rules": [r.to_dict() for r in self.rules],
+        }
