@@ -1,7 +1,7 @@
 # Hydra — common tasks. See ARCHITECTURE.md and CLAUDE.md.
 MODEL ?= mistral:7b
 
-.PHONY: help run run-promptlock test dashboard setup arena-build falco-build clean
+.PHONY: help run run-promptlock evasion-demo test dashboard setup arena-build falco-build clean
 
 help:  ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -12,6 +12,9 @@ run:  ## run the adversarial loop (metamorphic mode) with the fake arena (no dep
 
 run-promptlock:  ## run the adversarial loop (promptlock mode) with the fake arena (no deps)
 	HYDRA_FAKE=1 python3 -m referee.loop --iterations 8 --mode promptlock
+
+evasion-demo:  ## mechanism-swap: naive behavioral rule evaded, behavior preserved (real arena if Docker, else crafted)
+	python3 evasion_demo.py
 
 test:  ## run unit tests
 	python3 -m unittest discover -s tests -v

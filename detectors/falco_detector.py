@@ -35,3 +35,29 @@ def evaluate(obs: ArenaObservation) -> BehaviorVerdict:
     # TODO: when Falco/eBPF is available in Colima, evaluate the rule in
     # hydra_ransomware.yaml against the live syscall stream (the entropy signal is
     # fed from the strace-derived arena facts).
+
+
+def evaluate_naive(obs: ArenaObservation) -> BehaviorVerdict:
+    """Naive canary rule — fires only on IN-PLACE rewrite of existing files with
+    high-entropy content (a file overwritten after it already held content).
+
+    This is a common, reasonable-looking real heuristic: EDR canaries and
+    honeyfile monitors alert when a *watched, existing* file is modified with
+    high-entropy bytes. Its blind spot is the mechanism: an adversary that
+    replaces each victim via write-to-temp + rename() never overwrites an
+    existing file in place, so this rule stays SILENT while every victim still
+    ends encrypted. That is the evasion Hydra demonstrates."""
+    if not obs.compiled:
+        return "SILENT"
+    return "FIRED" if obs.encrypted_in_place >= FILES_K else "SILENT"
+
+
+def evaluate_robust(obs: ArenaObservation) -> BehaviorVerdict:
+    """Robust rule — fires when at least FILES_K distinct victim files END
+    high-entropy by ANY mechanism. It follows rename() to the real destination
+    and ignores scratch temps, so it keys on the behavior CLASS (the owner's
+    files became unrecoverable), not on which syscall did it. A mechanism swap
+    that evades ``evaluate_naive`` does not evade this."""
+    if not obs.compiled:
+        return "SILENT"
+    return "FIRED" if obs.encrypted_outcome >= FILES_K else "SILENT"

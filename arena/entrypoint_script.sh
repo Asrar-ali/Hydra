@@ -29,7 +29,7 @@ else
     # -xx / -s 4096 as in entrypoint.sh: full write-buffer capture so the
     # host can compute entropy of what was actually written.
     strace -f -xx -s 4096 \
-        -e trace=openat,open,write,unlink,unlinkat,connect,socket,execve \
+        -e trace=openat,open,write,rename,renameat,renameat2,unlink,unlinkat,connect,socket,execve \
         -o /work/trace.txt env PYTHONDONTWRITEBYTECODE=1 python3 -B "$SRC" >/work/stdout.txt 2>/work/run.err
 fi
 echo $? > /work/exit.txt

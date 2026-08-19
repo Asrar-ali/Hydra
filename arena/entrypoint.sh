@@ -28,7 +28,7 @@ else
     # -xx hex-encodes all string data; -s 4096 captures full write buffers so
     # the host can compute the entropy of what was actually written to disk.
     strace -f -xx -s 4096 \
-        -e trace=openat,open,write,unlink,unlinkat,connect,socket,execve \
+        -e trace=openat,open,write,rename,renameat,renameat2,unlink,unlinkat,connect,socket,execve \
         -o /work/trace.txt "$BIN" >/work/stdout.txt 2>/work/run.err
 fi
 echo $? > /work/exit.txt

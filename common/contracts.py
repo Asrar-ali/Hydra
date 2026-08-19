@@ -26,6 +26,8 @@ class ArenaObservation:
     binary_bytes: Optional[bytes] = None       # None in fake mode / on compile failure
     files_written: int = 0
     encrypted_files: int = 0                    # distinct files whose final write is high-entropy
+    encrypted_in_place: int = 0                 # existing files overwritten in place, high-entropy (naive-rule signal)
+    encrypted_outcome: int = 0                  # victims ending high-entropy by any mechanism (behavior class)
     mean_entropy: float = 0.0                   # bits/byte, 0..8
     syscalls: list[str] = field(default_factory=list)
     stdout: str = ""
