@@ -91,11 +91,12 @@ class Handler(BaseHTTPRequestHandler):
         else:
             os.environ.pop("HYDRA_FAKE", None)
         record = params.get("record", ["0"])[0] == "1"
+        custom_prompt = params.get("prompt", [None])[0] or None
 
         self._open_sse()
         collected = []
         try:
-            for name, data in run_events(cap, mode=mode):
+            for name, data in run_events(cap, mode=mode, custom_prompt=custom_prompt):
                 collected.append([name, data])
                 self._send(name, data)
         except BrokenPipeError:

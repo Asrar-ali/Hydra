@@ -98,7 +98,7 @@ def _row(i, track, target, source, obs, yv, fv, prov) -> dict:
 
 
 def _propose_events(prev_source, feedback, index, *, preserve, track, target,
-                    evades=None, detect_reason=None):
+                    evades=None, detect_reason=None, custom_prompt=None):
     """Generator: yields rewrite events; returns (source, provenance, obs).
 
     Prefers the adaptive LLM (streaming its tokens as events). Each attempt is
@@ -111,7 +111,7 @@ def _propose_events(prev_source, feedback, index, *, preserve, track, target,
         for attempt in range(ADV_ATTEMPTS):
             parts: list[str] = []
             try:
-                for tok in llm.rewrite_stream(fb):
+                for tok in llm.rewrite_stream(fb, system=custom_prompt):
                     parts.append(tok)
                     yield "rewrite_token", {"iteration": index, "track": track, "text": tok}
             except Exception as exc:  # noqa: BLE001 - network/model -> fallback
@@ -153,7 +153,8 @@ def _propose_events(prev_source, feedback, index, *, preserve, track, target,
     return cand, mutator.provenance, obs
 
 
-def run_events(cap: int, mode: str = "metamorphic") -> Iterator[tuple[str, dict]]:
+def run_events(cap: int, mode: str = "metamorphic",
+               custom_prompt: str | None = None) -> Iterator[tuple[str, dict]]:
     """Dispatch on payload mode (ARCHITECTURE.md §9.3):
 
     - "metamorphic" (default): the LLM REWRITES one candidate between builds,
@@ -163,12 +164,12 @@ def run_events(cap: int, mode: str = "metamorphic") -> Iterator[tuple[str, dict]
       rewrite, just per-execution polymorphism.
     """
     if mode == "promptlock":
-        yield from _run_events_promptlock(cap)
+        yield from _run_events_promptlock(cap, custom_prompt=custom_prompt)
         return
-    yield from _run_events_metamorphic(cap)
+    yield from _run_events_metamorphic(cap, custom_prompt=custom_prompt)
 
 
-def _run_events_metamorphic(cap: int) -> Iterator[tuple[str, dict]]:
+def _run_events_metamorphic(cap: int, custom_prompt: str | None = None) -> Iterator[tuple[str, dict]]:
     seed = _seed_source()
     base = arena_run(seed)
     if not base.binary_bytes:
@@ -187,7 +188,8 @@ def _run_events_metamorphic(cap: int) -> Iterator[tuple[str, dict]]:
         cand, prov, obs = yield from _propose_events(
             src, Feedback("yara", _yara_reason(rule), src), i, preserve=True, track=1, target="yara",
             evades=lambda o: _yara(o, rule) == "CLEAN",
-            detect_reason=lambda o: _yara_detect_reason(rule, o))
+            detect_reason=lambda o: _yara_detect_reason(rule, o),
+            custom_prompt=custom_prompt)
         yv, fv = _yara(obs, rule), falco_detector.evaluate(obs)
         yield "verdict", _row(i, 1, "yara", cand, obs, yv, fv, prov)
         total += 1
@@ -201,7 +203,8 @@ def _run_events_metamorphic(cap: int) -> Iterator[tuple[str, dict]]:
     beh_evasions, src = 0, seed
     for i in range(1, cap + 1):
         cand, prov, obs = yield from _propose_events(
-            src, Feedback("falco", _falco_reason(), src), i, preserve=True, track=2, target="falco")
+            src, Feedback("falco", _falco_reason(), src), i, preserve=True, track=2, target="falco",
+            custom_prompt=custom_prompt)
         yv, fv = _yara(obs, rule), falco_detector.evaluate(obs)
         yield "verdict", _row(i, 2, "falco", cand, obs, yv, fv, prov)
         total += 1
@@ -236,14 +239,14 @@ def _use_llm_promptlock() -> bool:
     return os.environ.get("HYDRA_FAKE") != "1" and llm.is_available()
 
 
-def _generate_promptlock_events(index: int):
+def _generate_promptlock_events(index: int, custom_prompt: str | None = None):
     """Generator: yields events for a freshly GENERATED script (not a rewrite
     of the previous one — no detector feedback loop; per-run polymorphism is
     the whole point). Returns (source, provenance, obs)."""
     if _use_llm_promptlock():
         parts: list[str] = []
         try:
-            for tok in llm.generate_promptlock_stream(index):
+            for tok in llm.generate_promptlock_stream(index, system=custom_prompt):
                 parts.append(tok)
                 yield "rewrite_token", {"iteration": index, "track": 4, "text": tok}
             cand = llm.extract_py("".join(parts))
@@ -264,7 +267,7 @@ def _generate_promptlock_events(index: int):
     return cand, mutator.provenance, obs
 
 
-def _run_events_promptlock(cap: int) -> Iterator[tuple[str, dict]]:
+def _run_events_promptlock(cap: int, custom_prompt: str | None = None) -> Iterator[tuple[str, dict]]:
     """PromptLock demonstration: every iteration is an independently generated
     script (deterministic generation-0 seed, then LLM-generated or offline
     fallback), scanned against the rule seeded on generation 0. Byte-level
@@ -284,7 +287,7 @@ def _run_events_promptlock(cap: int) -> Iterator[tuple[str, dict]]:
 
     sig_evasions, beh_evasions, total = 0, 0, 1
     for i in range(1, cap + 1):
-        cand, prov, obs = yield from _generate_promptlock_events(i)
+        cand, prov, obs = yield from _generate_promptlock_events(i, custom_prompt=custom_prompt)
         yv, fv = _yara(obs, rule), falco_detector.evaluate(obs)
         yield "verdict", _row(i, 4, None, cand, obs, yv, fv, prov)
         total += 1

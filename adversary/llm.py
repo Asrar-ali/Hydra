@@ -44,14 +44,14 @@ _SYSTEM = (
 )
 
 
-def _messages(feedback: Feedback) -> list[dict]:
+def _messages(feedback: Feedback, system: str | None = None) -> list[dict]:
     user = (
         f"Detector: {feedback.detector}\n"
         f"Why it was flagged:\n{feedback.reason}\n\n"
         f"Current program:\n{feedback.source}\n\n"
         "Return the full rewritten C program only."
     )
-    return [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": user}]
+    return [{"role": "system", "content": system or _SYSTEM}, {"role": "user", "content": user}]
 
 
 def is_available(timeout: float = 2.0) -> bool:
@@ -70,9 +70,10 @@ def is_available(timeout: float = 2.0) -> bool:
     return False
 
 
-def rewrite(feedback: Feedback, timeout: float = 180.0, temperature: float = 0.4) -> str:
+def rewrite(feedback: Feedback, timeout: float = 180.0, temperature: float = 0.4,
+            system: str | None = None) -> str:
     """One-shot rewrite (no streaming)."""
-    payload = {"model": ADVERSARY_MODEL, "messages": _messages(feedback),
+    payload = {"model": ADVERSARY_MODEL, "messages": _messages(feedback, system),
                "stream": False, "options": {"temperature": temperature}}
     req = urllib.request.Request(
         f"{OLLAMA_HOST}/api/chat", data=json.dumps(payload).encode(),
@@ -84,10 +85,11 @@ def rewrite(feedback: Feedback, timeout: float = 180.0, temperature: float = 0.4
 
 
 def rewrite_stream(feedback: Feedback, timeout: float = 180.0,
-                   temperature: float = 0.4) -> Iterator[str]:
+                   temperature: float = 0.4,
+                   system: str | None = None) -> Iterator[str]:
     """Yield content tokens as the model writes. Caller accumulates and calls
     ``extract_c`` on the full text."""
-    payload = {"model": ADVERSARY_MODEL, "messages": _messages(feedback),
+    payload = {"model": ADVERSARY_MODEL, "messages": _messages(feedback, system),
                "stream": True, "options": {"temperature": temperature}}
     req = urllib.request.Request(
         f"{OLLAMA_HOST}/api/chat", data=json.dumps(payload).encode(),
@@ -132,19 +134,20 @@ _SYSTEM_PROMPTLOCK = (
 )
 
 
-def _promptlock_messages(iteration: int) -> list[dict]:
+def _promptlock_messages(iteration: int, system: str | None = None) -> list[dict]:
     user = (
         f"Generate script #{iteration}. Make it look like a different author wrote "
         "it than any previous run: new names, new structure, new strings. Return "
         "the full Python script only."
     )
-    return [{"role": "system", "content": _SYSTEM_PROMPTLOCK}, {"role": "user", "content": user}]
+    return [{"role": "system", "content": system or _SYSTEM_PROMPTLOCK}, {"role": "user", "content": user}]
 
 
-def generate_promptlock(iteration: int, timeout: float = 180.0, temperature: float = 0.9) -> str:
+def generate_promptlock(iteration: int, timeout: float = 180.0, temperature: float = 0.9,
+                        system: str | None = None) -> str:
     """One-shot: a freshly GENERATED PromptLock-style script (not a rewrite of a
     prior candidate — a new script per call, per ARCHITECTURE.md §9.3)."""
-    payload = {"model": ADVERSARY_MODEL, "messages": _promptlock_messages(iteration),
+    payload = {"model": ADVERSARY_MODEL, "messages": _promptlock_messages(iteration, system),
                "stream": False, "options": {"temperature": temperature}}
     req = urllib.request.Request(
         f"{OLLAMA_HOST}/api/chat", data=json.dumps(payload).encode(),
@@ -156,9 +159,10 @@ def generate_promptlock(iteration: int, timeout: float = 180.0, temperature: flo
 
 
 def generate_promptlock_stream(iteration: int, timeout: float = 180.0,
-                               temperature: float = 0.9) -> Iterator[str]:
+                               temperature: float = 0.9,
+                               system: str | None = None) -> Iterator[str]:
     """Streaming form of ``generate_promptlock`` (for SSE)."""
-    payload = {"model": ADVERSARY_MODEL, "messages": _promptlock_messages(iteration),
+    payload = {"model": ADVERSARY_MODEL, "messages": _promptlock_messages(iteration, system),
                "stream": True, "options": {"temperature": temperature}}
     req = urllib.request.Request(
         f"{OLLAMA_HOST}/api/chat", data=json.dumps(payload).encode(),
