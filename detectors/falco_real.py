@@ -10,10 +10,22 @@ resolved in this setup — every ``container.name`` came back null, for every
 container, old and new, regardless of which socket path was mounted where.
 So this module does NOT scope events by container identity. Instead it scopes
 by PROCESS TREE: ``arena.run`` hands us the run's root pid (from ``docker
-inspect``), and we keep only sensor events whose pid, ppid, or one of
-Falco's own ancestor-pid fields (``proc.apid[1..4]``) equals it — validated
-to correctly thread back through a 3-level-deep process tree in the spike,
-comfortably covering our real depth (entrypoint -> strace -> candidate).
+inspect``), and we keep only sensor events whose pid or ppid equals it — i.e.
+the container's own PID 1 (``entrypoint.sh``/``entrypoint_script.sh``) and its
+DIRECT children only.
+
+That used to also match ``proc.apid[2..4]`` (deeper ancestors), sized for an
+"entrypoint -> strace -> candidate" chain. That chain never actually occurs on
+this path: the real-Falco path always sets ``HYDRA_NO_STRACE=1``, so the
+candidate is always a direct child of entrypoint, one hop away. The extra
+depth was live for no correct reason and, in metamorphic mode, silently swept
+in gcc's own children too (entrypoint -> gcc -> {cc1, as}, gcc's writes sit at
+``proc.apid[2]``) — their ``/tmp/cc*.s``/``.o`` scratch files got counted as
+if they were the candidate's output. Verified directly: a captured "run" this
+way reported 2 low-entropy files against a strace baseline of 24 high-entropy
+ones, and the 2 files were literally the compiler's intermediates. Narrowing
+to pid/ppid-only excludes that tree by construction, since gcc's children are
+two hops from root, not one.
 
 One long-lived, privileged, host-pid-namespace sensor container for the whole
 process — eBPF probe attach takes a second or two, too slow to pay per run.
@@ -44,7 +56,6 @@ log = get_logger("falco_real")
 
 IMAGE = os.environ.get("HYDRA_FALCO_IMAGE", "hydra-falco")
 CONTAINER = "hydra-falco-sensor"
-_ANCESTOR_DEPTH = 4  # proc.apid[1..this] — validated against a 3-deep tree with headroom
 
 _started = False
 _ready = False
@@ -98,9 +109,9 @@ def stop() -> None:
 
 
 def _belongs_to(fields: dict, root_pid: int) -> bool:
-    if fields.get("proc.pid") == root_pid or fields.get("proc.ppid") == root_pid:
-        return True
-    return any(fields.get(f"proc.apid[{i}]") == root_pid for i in range(1, _ANCESTOR_DEPTH + 1))
+    # pid/ppid only, deliberately — see the module docstring for why deeper
+    # ancestor matching (proc.apid[2..4]) got dropped.
+    return fields.get("proc.pid") == root_pid or fields.get("proc.ppid") == root_pid
 
 
 def _decode_buffer(b64: str) -> bytes | None:

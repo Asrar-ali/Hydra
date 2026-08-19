@@ -31,10 +31,13 @@ class TestBelongsTo(unittest.TestCase):
     def test_matches_on_ppid(self):
         self.assertTrue(falco_real._belongs_to({"proc.pid": 99, "proc.ppid": 42}, 42))
 
-    def test_matches_on_any_ancestor_depth(self):
-        fields = {"proc.pid": 99, "proc.ppid": 50, "proc.apid[1]": 50,
-                  "proc.apid[2]": 42, "proc.apid[3]": 1}
-        self.assertTrue(falco_real._belongs_to(fields, 42))
+    def test_no_match_beyond_direct_child(self):
+        # A grandchild (e.g. gcc's own cc1/as under entrypoint -> gcc -> cc1)
+        # must NOT match on root_pid alone via a deep ancestor field — see the
+        # module docstring for why: this used to match via proc.apid[2] and
+        # silently counted gcc's compile-time /tmp writes as the candidate's.
+        fields = {"proc.pid": 99, "proc.ppid": 50, "proc.apid[1]": 50, "proc.apid[2]": 42}
+        self.assertFalse(falco_real._belongs_to(fields, 42))
 
     def test_no_match_for_unrelated_tree(self):
         fields = {"proc.pid": 99, "proc.ppid": 50, "proc.apid[1]": 50, "proc.apid[2]": 1}

@@ -248,7 +248,7 @@ Colima VM's kernel (6.8, BTF present). `-S 4096 -b` captures the full write
 buffer, base64, same as strace's `-xx -s 4096` — so this sensor gets real
 entropy, not just event counts.
 
-Three things didn't work as expected, and shaped the design:
+Four things didn't work as expected, and shaped the design:
 
 1. **Container-name enrichment never resolved.** Falco's docker/CRI
    container-name lookup came back null for every container tried in this
@@ -258,10 +258,22 @@ Three things didn't work as expected, and shaped the design:
    (`_run_detailed_real_falco`) launches the arena container with `Popen`
    instead of the default blocking call so it can ask Docker for the
    container's host pid (`docker inspect .State.Pid`) while it's still
-   running, then keeps only sensor events whose pid, ppid, or one of Falco's
-   own ancestor-pid fields (`proc.apid[1..4]`) equals that root pid —
-   verified against a 3-level-deep process tree, comfortably covering the
-   real depth (entrypoint → candidate).
+   running, then keeps only sensor events whose pid or ppid equals that root
+   pid — i.e. the container's own PID 1 and its direct children.
+   Originally this also matched Falco's ancestor-pid fields
+   (`proc.apid[2..4]`), sized for an "entrypoint → strace → candidate" chain
+   — but that chain never actually happens on this path (point 2 below means
+   strace is always off here, so the candidate is always one hop from root).
+   The extra depth just sat there matching things it shouldn't have: in
+   `metamorphic` mode it also caught gcc's own children (entrypoint → gcc →
+   {cc1, as}, two hops from root), so gcc's `/tmp/cc*.s`/`.o` scratch files
+   got silently counted as the candidate's output. Caught this by diffing a
+   real-Falco run against the strace baseline on the same source: strace
+   reported 24 files at ~7.96 bits/byte entropy (correct), real-Falco
+   reported 2 files at ~1 bit/byte — and the 2 files were literally the
+   compiler's intermediates. Narrowing to pid/ppid-only excludes gcc's tree
+   by construction and was verified to fix it (files=0 on a clean run, no
+   more phantom low-entropy readings).
 2. **A ptrace-traced process is invisible to the eBPF probe.** strace (the
    default sensor) works by ptrace-attaching to the candidate; empirically, a
    process being ptrace-traced stops generating the syscall events Falco's
@@ -270,29 +282,51 @@ Three things didn't work as expected, and shaped the design:
    at once, so the real-Falco path passes `HYDRA_NO_STRACE=1` into the
    container and both entrypoints (`entrypoint.sh`, `entrypoint_script.sh`)
    skip the strace wrapper when it's set. The default path is untouched.
-3. **The sensor's own event volume slows the host down.** Watching every
-   `write()` under `/tmp` system-wide (needed since Falco's `fd.name
-   startswith` filtering behaved unreliably in testing — plain `fd.directory=`
-   equality was used instead) generates real load on a busy, shared machine,
-   and empirically that measurably delays new containers getting a live pid —
-   3-4s typically, sometimes into double digits, on the machine this was
-   built and tested on (a Colima VM also running several unrelated long-lived
-   containers). `_run_detailed_real_falco` budgets 10s for that pid-poll and
-   returns an explicit `error` (not a silently-empty report) if it still
-   doesn't show up, rather than reporting zero files and looking like a
+3. **The sensor's own event volume slows the host down — and there's no
+   cheaper way to get it.** The write rule needs plain `write()`, but Falco
+   hardcodes `write` (along with `read`, `pwrite`, `sendfile`, and eight
+   other high-volume syscalls) into a fixed "ignored by default" bucket that
+   only the blanket `-A` flag unlocks — confirmed directly (`falco -i` still
+   lists `write` as ignored even with our rule loaded and referencing it;
+   `base_syscalls.custom_set=[write]` is explicitly rejected: "Invalid
+   (positive) syscall names ... activate via -A flag"). There's no supported
+   way to turn on `write` alone — `-A` turns on all thirteen, host-wide,
+   for every process, all the time. Measured the actual cost directly on this
+   box: a container with no sensor running gets a live pid in 0.13s; with the
+   sensor running (same box, same moment, nothing else changed), the same
+   container consistently took 12s+ to get a pid, or didn't within a 10s
+   budget at all — roughly two orders of magnitude, and reproducible on
+   demand, not an occasional blip. `_run_detailed_real_falco` returns an
+   explicit `error` (not a silently-empty report) when the pid-poll budget
+   runs out, rather than reporting zero files and looking like a
    behavior-free run. `tests/test_falco_real.py`'s gated integration test
    skips (doesn't fail) when it hits this specifically, since it's an
    environmental constraint of the box it ran on, not a defect.
+4. **Still open, discovered while re-testing point 1's fix**: on a handful of
+   runs, `Hydra Sensor Connect` fired and got attributed straight to the
+   container's own root pid — no ancestor chain involved, so point 1's fix
+   doesn't touch it — even though the candidate never calls `connect()` and
+   the strace baseline shows zero network syscalls for the same source.
+   Not yet root-caused: candidates include the shell/gcc/libc startup chain
+   making some NSS/DNS-shaped syscall of its own under `--network=none`
+   (plausible — glibc's resolver does this even for local-only lookups) or a
+   genuine pid collision in the correlation window on a host cycling through
+   this many processes per second. Either way it's a false positive on the
+   sandbox's no-network safety check, which is a worse failure mode for a
+   demo than a missed detection would be. Not fixed tonight — flagging it
+   so nobody re-diagnoses point 1 when they hit this.
 
 This path is genuinely a swap-in when it lands cleanly (real syscalls, real
-entropy, independent of the strace/ptrace mechanism), but it's opt-in rather
-than the default: it needs a privileged, host-pid-namespace container
-watching the whole VM — a materially bigger footprint than the tightly-scoped
-arena the rest of Hydra runs candidates in — and the contention finding above
-means it isn't reliably fast enough yet to turn on for a live demo. This
-repo hasn't run it live in front of an audience yet.
-`_run_detailed_strace` (the default) is untouched by any
-of this.
+entropy, independent of the strace/ptrace mechanism), and point 1's fix makes
+it correct more often when it does land. But it's opt-in rather than the
+default: it needs a privileged, host-pid-namespace container watching the
+whole VM — a materially bigger footprint than the tightly-scoped arena the
+rest of Hydra runs candidates in — and points 3 and 4 mean it isn't reliably
+fast *or* trustworthy enough yet to turn on for a live demo: on this box,
+tonight, 0 of 10 back-to-back runs completed cleanly (7 timed out on the
+pid-poll, 3 hit the point-4 false positive). This repo hasn't run it live in
+front of an audience yet, and shouldn't for this one.
+`_run_detailed_strace` (the default) is untouched by any of this.
 
 ### 9.3 Payload modes: build-time vs. runtime polymorphism
 
