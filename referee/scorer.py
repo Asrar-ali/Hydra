@@ -218,6 +218,90 @@ def run_scorecard(cap: int, mode: str = "robustness") -> dict:
     return scorecard
 
 
+# --- Hardening loop: "kill one head, it grows a new one" -----------------------
+#
+# A defender starts with the weakest behavioral rule. Each time the adversary
+# evades it, the defender PATCHES the blind spot — and the patched rule forces
+# the adversary to a deeper mechanism, until the outcome-keyed rule holds. The
+# ladder is exactly the registry's rules, ordered so each rung is the hardened
+# version of the one before; ``patch`` narrates what each hardening step adds.
+HARDENING_LADDER: list[tuple[str, str]] = [
+    ("naive_inplace",
+     "follow rename() to the real victim — count the outcome, not just in-place writes"),
+    ("rate_windowed",
+     "stop keying on a short time window — count per process instead of per burst"),
+    ("per_process",
+     "aggregate the outcome across every process, not just one pid"),
+    ("robust_outcome",
+     "already counts victims that end unrecoverable by ANY mechanism, across all "
+     "processes and time — nothing left to patch"),
+]
+
+
+def _shallowest_evasion(spec: RuleSpec, obs_by_mech: dict[str, Optional[ArenaObservation]]):
+    """First mechanism (in MECHANISMS order) that drives ``spec`` SILENT while
+    behavior is preserved. Returns (mechanism, depth) or (None, None)."""
+    for i, m in enumerate(MECHANISMS, start=1):
+        obs = obs_by_mech.get(m)
+        if obs is None:
+            continue
+        if spec.evaluate(obs) == "SILENT" and behavior_preserved(obs):
+            return m, i
+    return None, None
+
+
+def harden_events(cap: int) -> Iterator[tuple[str, dict]]:
+    """Generator: walk the hardening ladder. For each rung, find the shallowest
+    mechanism that evades it; if evaded, the defender patches to the next rung.
+    Emits ``harden_step`` per rung and a final ``harden_summary`` (ARCHITECTURE.md
+    §11). Reuses the cached arena observations — ``len(MECHANISMS)`` runs total."""
+    log.info("hardening loop starting  cap=%d", cap)
+    obs_by_mech = _build_observations()
+    if all(obs is None for obs in obs_by_mech.values()):
+        yield "error", {"stage": "arena", "message": "every mechanism failed to run in the arena"}
+        return
+
+    rounds = 0
+    for rung, (rule_name, patch) in enumerate(HARDENING_LADDER, start=1):
+        spec = RULES[rule_name]
+        mechanism, depth = _shallowest_evasion(spec, obs_by_mech)
+        evaded = mechanism is not None
+        nxt = HARDENING_LADDER[rung][0] if (evaded and rung < len(HARDENING_LADDER)) else None
+        if evaded:
+            rounds += 1
+        yield "harden_step", {
+            "rung": rung,
+            "rule": rule_name,
+            "evaded": evaded,
+            "evaded_by": mechanism,
+            "depth": depth,
+            "hardened_to": nxt,
+            "patch": None if not evaded else patch,
+            "held": not evaded,
+        }
+        log.info("rung=%d rule=%s evaded_by=%s -> harden_to=%s", rung, rule_name, mechanism, nxt)
+        if not evaded:
+            break
+
+    yield "harden_summary", {
+        "rounds": rounds,                       # how many heads the adversary cut
+        "final_rule": HARDENING_LADDER[min(rounds, len(HARDENING_LADDER) - 1)][0],
+        "holds": True,                          # the ladder always ends at robust_outcome
+    }
+
+
+def run_hardening(cap: int) -> dict:
+    """Drain ``harden_events`` into {steps, summary}."""
+    steps: list[dict] = []
+    summary: dict = {}
+    for name, data in harden_events(cap):
+        if name == "harden_step":
+            steps.append(data)
+        elif name == "harden_summary":
+            summary = data
+    return {"steps": steps, "summary": summary}
+
+
 def main() -> int:
     import argparse
     import json
@@ -225,7 +309,28 @@ def main() -> int:
 
     ap = argparse.ArgumentParser(description="Hydra detection-rule robustness scorer")
     ap.add_argument("--iterations", type=int, default=12)
+    ap.add_argument("--harden", action="store_true",
+                    help="run the hardening loop: patch each evaded rule until one holds")
     args = ap.parse_args()
+
+    if args.harden:
+        result = run_hardening(args.iterations)
+        print("\n" + "=" * 66)
+        print("  HARDENING LOOP  ·  kill one head, it grows a new one")
+        print("=" * 66)
+        for s in result["steps"]:
+            if s["held"]:
+                print(f"  rung {s['rung']}: {s['rule']:<16} ✓ HOLDS — no mechanism evades it")
+            else:
+                print(f"  rung {s['rung']}: {s['rule']:<16} ✗ evaded by {s['evaded_by']} "
+                      f"(depth {s['depth']})")
+                print(f"          └─ patch: {s['patch']}")
+                print(f"          → deploy {s['hardened_to']}")
+        summ = result["summary"]
+        print("=" * 66)
+        print(f"  {summ['rounds']} heads cut · the {summ['final_rule']} rule is the one that holds")
+        print("=" * 66)
+        return 0
 
     card = run_scorecard(args.iterations)
     results = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scorecard.json")

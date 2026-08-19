@@ -239,3 +239,45 @@ class TestScorerLLMOverlayOffByDefault(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestHardeningLoop(unittest.TestCase):
+    """The 'kill one head, it grows a new one' ladder, over the same mocked
+    matrix as TestScorerSearch — no Docker."""
+
+    def setUp(self):
+        patchers = [
+            patch("referee.scorer.run_detailed", side_effect=_fake_run_detailed),
+            patch("referee.scorer.apply_mechanism", side_effect=_fake_apply_mechanism),
+        ]
+        for p in patchers:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_ladder_forces_a_new_mechanism_each_rung_until_outcome_holds(self):
+        from referee.scorer import run_hardening
+
+        result = run_hardening(12)
+        steps = {s["rule"]: s for s in result["steps"]}
+
+        # each rung is evaded by exactly the next-deeper mechanism...
+        self.assertEqual(steps["naive_inplace"]["evaded_by"], "rename_swap")
+        self.assertEqual(steps["rate_windowed"]["evaded_by"], "throttle")
+        self.assertEqual(steps["per_process"]["evaded_by"], "fanout")
+        # ...and each patch deploys the next rung
+        self.assertEqual(steps["naive_inplace"]["hardened_to"], "rate_windowed")
+        self.assertEqual(steps["rate_windowed"]["hardened_to"], "per_process")
+        self.assertEqual(steps["per_process"]["hardened_to"], "robust_outcome")
+        # the outcome rule is the head that holds
+        self.assertTrue(steps["robust_outcome"]["held"])
+        self.assertFalse(steps["robust_outcome"]["evaded"])
+        self.assertEqual(result["summary"]["rounds"], 3)
+        self.assertEqual(result["summary"]["final_rule"], "robust_outcome")
+
+    def test_loop_stops_at_the_first_rule_that_holds(self):
+        from referee.scorer import run_hardening
+
+        # robust_outcome holds, so the ladder must end there (4 steps, not more)
+        result = run_hardening(12)
+        self.assertEqual(result["steps"][-1]["rule"], "robust_outcome")
+        self.assertEqual(len(result["steps"]), 4)

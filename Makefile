@@ -1,7 +1,7 @@
 # Hydra — common tasks. See ARCHITECTURE.md and CLAUDE.md.
 MODEL ?= mistral:7b
 
-.PHONY: help run run-promptlock evasion-demo score test dashboard setup arena-build falco-build clean
+.PHONY: help run run-promptlock evasion-demo score harden test dashboard setup arena-build falco-build clean
 
 help:  ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -16,8 +16,11 @@ run-promptlock:  ## run the adversarial loop (promptlock mode) with the fake are
 evasion-demo:  ## mechanism-swap: naive behavioral rule evaded, behavior preserved (real arena if Docker, else crafted)
 	python3 evasion_demo.py
 
-score:  ## detection-rule robustness leaderboard (Phase 0: stub/canned data)
+score:  ## detection-rule robustness leaderboard (real arena)
 	python3 -m referee.scorer --iterations 12
+
+harden:  ## hardening loop: patch each evaded rule until one holds ("grows a new head")
+	python3 -m referee.scorer --harden --iterations 12
 
 test:  ## run unit tests
 	python3 -m unittest discover -s tests -v

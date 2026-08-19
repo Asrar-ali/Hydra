@@ -420,6 +420,8 @@ detection-rule robustness scorer instead of the adversarial loop.
 | `rule_start` | `{ "rule": str }` | Robustness scorer began evaluating a named rule. |
 | `rule_verdict` | `{ "rule", "evaded": bool, "evasion_depth": int\|null, "mechanism": str\|null, "behavior_preserved": bool }` | Result for one rule: the mechanism (if any) that evaded it while behavior was preserved, and at what depth. |
 | `scorecard` | the Scorecard object (§10) | End of a robustness-scorer run: per-rule evasion depths (the leaderboard). |
+| `harden_step` | `{ "rung": int, "rule": str, "evaded": bool, "evaded_by": str\|null, "depth": int\|null, "hardened_to": str\|null, "patch": str\|null, "held": bool }` | One rung of the hardening loop: the rule, the shallowest mechanism that evaded it, and the patch that deploys the next rule. |
+| `harden_summary` | `{ "rounds": int, "final_rule": str, "holds": true }` | End of the hardening loop: how many rules the adversary cut before one held. |
 
 `GET /replay` emits the same sequence from a recorded run, so the dashboard code
 path is identical live or replayed.
