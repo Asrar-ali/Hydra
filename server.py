@@ -13,6 +13,7 @@ Event vocabulary matches ARCHITECTURE.md §11. Run:
 """
 from __future__ import annotations
 
+import glob
 import json
 import os
 import time
@@ -25,7 +26,27 @@ from referee.loop import run_events
 log = get_logger("server")
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPLAY = os.path.join(HERE, "replay.json")
+SAMPLE_DIR = os.path.join(HERE, "sample")
 PORT = int(os.environ.get("HYDRA_PORT", "8000"))
+
+# Labels shown in the UI dropdown; keys are stem names (without .c)
+_SEED_LABELS = {
+    "seed":        "XOR-cipher (default)",
+    "seed_mmap":   "mmap I/O",
+    "seed_walker": "dir-walker",
+}
+
+
+def _available_seeds() -> list[dict]:
+    """Return seeds in a stable order: default first, rest alphabetical."""
+    stems = sorted(
+        os.path.splitext(os.path.basename(p))[0]
+        for p in glob.glob(os.path.join(SAMPLE_DIR, "seed*.c"))
+    )
+    # ensure default is first
+    if "seed" in stems:
+        stems = ["seed"] + [s for s in stems if s != "seed"]
+    return [{"name": s, "label": _SEED_LABELS.get(s, s)} for s in stems]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -39,6 +60,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._serve_file(os.path.join(HERE, "ui", "index.html"), "text/html")
         if route.path == "/health":
             return self._json({"ok": True})
+        if route.path == "/seeds":
+            return self._json(_available_seeds())
         if route.path == "/run":
             return self._run(params)
         if route.path == "/replay":
@@ -93,10 +116,16 @@ class Handler(BaseHTTPRequestHandler):
         record = params.get("record", ["0"])[0] == "1"
         custom_prompt = params.get("prompt", [None])[0] or None
 
+        allowed = {s["name"] for s in _available_seeds()}
+        seed_name = params.get("seed", ["seed"])[0]
+        if seed_name not in allowed:
+            seed_name = "seed"
+
         self._open_sse()
         collected = []
         try:
-            for name, data in run_events(cap, mode=mode, custom_prompt=custom_prompt):
+            for name, data in run_events(cap, mode=mode, custom_prompt=custom_prompt,
+                                         seed_name=seed_name):
                 collected.append([name, data])
                 self._send(name, data)
         except BrokenPipeError:
