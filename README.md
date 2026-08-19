@@ -34,6 +34,15 @@ make dashboard  # http://localhost:8000/  ->  ▶ Run
 For the real pipeline: `make setup` (installs yara, pulls the model), then
 `make arena-build`, then run without `HYDRA_FAKE`.
 
+The default model (`jimscard/whiterabbit-neo`, 13B) is real and on-theme, but
+on a loaded box it can take a couple minutes per rewrite. If the machine's
+under memory pressure right before a live demo, `HYDRA_ADVERSARY_MODEL=mistral:7b
+make dashboard` is a faster fallback that's still genuinely LLM-driven
+(verified: same evasion story, ~30s/iteration instead of ~2min). A smaller
+model like `llama3.2:1b` is fast but too weak to reliably produce valid
+rewrites — most iterations fall through to the deterministic mutator instead
+of the LLM, so it isn't a good demo substitute.
+
 ## Two payload modes
 
 - **metamorphic** (default) — the LLM rewrites one C program between builds,
