@@ -27,7 +27,9 @@ if [ "${HYDRA_NO_STRACE:-}" = "1" ]; then
 else
     # -xx hex-encodes all string data; -s 4096 captures full write buffers so
     # the host can compute the entropy of what was actually written to disk.
-    strace -f -xx -s 4096 \
+    # -tt adds wall-clock microsecond timestamps so the host can attribute
+    # each write to a point in time (arena/trace.py's rate-window fact).
+    strace -f -tt -xx -s 4096 \
         -e trace=openat,open,write,rename,renameat,renameat2,unlink,unlinkat,connect,socket,execve \
         -o /work/trace.txt "$BIN" >/work/stdout.txt 2>/work/run.err
 fi

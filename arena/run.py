@@ -97,6 +97,7 @@ def _run_detailed_strace(source: str, *, timeout: float = 30.0,
     artdir = tempfile.mkdtemp(prefix="hydra_art_")
     empty = {"syscalls": [], "files_written": 0, "encrypted_files": 0,
              "encrypted_in_place": 0, "encrypted_outcome": 0,
+             "max_encrypted_per_pid": 0, "max_rate_in_window": 0,
              "mean_entropy": 0.0, "write_paths": [], "network_attempts": 0}
     try:
         cmd = _docker_cmd(name, mode)
@@ -131,6 +132,7 @@ def _run_detailed_real_falco(source: str, *, timeout: float = 30.0,
     artdir = tempfile.mkdtemp(prefix="hydra_art_")
     empty = {"syscalls": [], "files_written": 0, "encrypted_files": 0,
              "encrypted_in_place": 0, "encrypted_outcome": 0,
+             "max_encrypted_per_pid": 0, "max_rate_in_window": 0,
              "mean_entropy": 0.0, "write_paths": [], "network_attempts": 0}
     proc = None
     try:
@@ -199,6 +201,7 @@ def _build_observation(docker_out: str, artdir: str, report: dict | None = None)
     when omitted (the default, unchanged path) it's parsed from trace.txt."""
     empty = {"syscalls": [], "files_written": 0, "encrypted_files": 0,
              "encrypted_in_place": 0, "encrypted_outcome": 0,
+             "max_encrypted_per_pid": 0, "max_rate_in_window": 0,
              "mean_entropy": 0.0, "write_paths": [], "network_attempts": 0}
 
     if "COMPILE_FAILED" in docker_out:
@@ -226,6 +229,8 @@ def _build_observation(docker_out: str, artdir: str, report: dict | None = None)
         files_written=report["files_written"], encrypted_files=report["encrypted_files"],
         encrypted_in_place=report.get("encrypted_in_place", 0),
         encrypted_outcome=report.get("encrypted_outcome", 0),
+        max_encrypted_per_pid=report.get("max_encrypted_per_pid", 0),
+        max_rate_in_window=report.get("max_rate_in_window", 0),
         mean_entropy=report["mean_entropy"], syscalls=report["syscalls"],
         stdout=stdout, exit_code=exit_code, error=error,
     )

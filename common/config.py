@@ -12,6 +12,11 @@ import os
 FILES_K: int = int(os.environ.get("HYDRA_FILES_K", "10"))        # min files rewritten
 ENTROPY_H: float = float(os.environ.get("HYDRA_ENTROPY_H", "7.0"))  # min mean bits/byte
 
+# The `rate_windowed` rule (arena/trace.py, detectors/rules_registry.py) keys
+# on >= FILES_K victims encrypted within this many seconds; the throttle
+# mechanism evades it by sleeping longer than this between victims.
+RATE_WINDOW_SECONDS: float = float(os.environ.get("HYDRA_RATE_WINDOW", "2.0"))
+
 # Loop bounds.
 ITERATION_CAP: int = int(os.environ.get("HYDRA_ITERATION_CAP", "12"))
 ADV_ATTEMPTS: int = int(os.environ.get("HYDRA_ADV_ATTEMPTS", "3"))  # LLM retries per iteration

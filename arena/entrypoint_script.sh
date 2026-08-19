@@ -27,8 +27,9 @@ if [ "${HYDRA_NO_STRACE:-}" = "1" ]; then
     env PYTHONDONTWRITEBYTECODE=1 python3 -B "$SRC" >/work/stdout.txt 2>/work/run.err
 else
     # -xx / -s 4096 as in entrypoint.sh: full write-buffer capture so the
-    # host can compute entropy of what was actually written.
-    strace -f -xx -s 4096 \
+    # host can compute entropy of what was actually written. -tt adds
+    # wall-clock microsecond timestamps for the rate-window fact.
+    strace -f -tt -xx -s 4096 \
         -e trace=openat,open,write,rename,renameat,renameat2,unlink,unlinkat,connect,socket,execve \
         -o /work/trace.txt env PYTHONDONTWRITEBYTECODE=1 python3 -B "$SRC" >/work/stdout.txt 2>/work/run.err
 fi

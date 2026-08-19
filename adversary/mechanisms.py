@@ -9,12 +9,11 @@ outcome (and therefore aren't). See ARCHITECTURE.md §9.2 for the Falco rule
 this is built to stress, and §9.1/§6 for the signature side this module does
 not touch.
 
-Phase 0 freezes the interface: ``MECHANISMS``, ``apply_mechanism``, and
-``mechanism_prompt`` all exist and are exercised by tests now. Only
-``write_inplace`` (sample/seed.c) and ``rename_swap`` (sample/seed_rename.c)
-are real today; ``throttle``, ``fanout``, and ``mmap`` fall back to the
-write-in-place seed with a marker comment until Phase 1 implements the real
-per-mechanism C generators.
+Phase 1 implements the real per-mechanism C generators for ``write_inplace``
+(sample/seed.c), ``rename_swap`` (sample/seed_rename.c), ``throttle``
+(sample/seed_throttle.c), and ``fanout`` (sample/seed_fanout.c). Only
+``mmap`` still falls back to the write-in-place seed with a marker comment,
+pending its own generator.
 
 Contract:
     MECHANISMS: list[str]
@@ -38,11 +37,11 @@ log = get_logger("mechanisms")
 #                    file, then rename() it over the victim. The victim never
 #                    receives a high-entropy write(), so a rule keying on
 #                    "existing file rewritten in place" never fires.
-#   throttle      -> defeats rate_windowed: spread the same rewrites out over
-#                    time so the bulk-encryption rate never crosses a
-#                    sliding-window threshold.
-#   fanout        -> defeats per_process: spread the same rewrites across
-#                    multiple child processes so no single process's syscall
+#   throttle      -> defeats rate_windowed: batch the same rewrites and
+#                    sleep() between batches so the bulk-encryption rate
+#                    never crosses a sliding-window threshold.
+#   fanout        -> defeats per_process: fork() the same rewrites across
+#                    multiple child processes so no single pid's victim
 #                    count crosses a per-process threshold.
 #   mmap          -> defeats write_content: replace victim content via
 #                    mmap()+memcpy instead of write(), so a rule that keys on
@@ -61,16 +60,22 @@ def apply_mechanism(name: str) -> str:
     """Return benign C source implementing the ransomware behavior class via
     ``name``'s syscall mechanism.
 
-    "write_inplace" and "rename_swap" return the real seed sources. The other
-    mechanisms are Phase 0 stubs: they fall back to the write-in-place seed,
-    clearly marked, so callers can already iterate over all of MECHANISMS and
-    get something that compiles and preserves the behavior class.
+    "write_inplace", "rename_swap", "throttle", and "fanout" all return real,
+    distinct C sources (sample/seed.c, sample/seed_rename.c,
+    sample/seed_throttle.c, sample/seed_fanout.c respectively). "mmap" is
+    still a Phase 1 stub: it falls back to the write-in-place seed, clearly
+    marked, so callers can already iterate over all of MECHANISMS and get
+    something that compiles and preserves the behavior class.
     """
     if name == "write_inplace":
         return _read_sample("seed.c")
     if name == "rename_swap":
         return _read_sample("seed_rename.c")
-    if name in ("throttle", "fanout", "mmap"):
+    if name == "throttle":
+        return _read_sample("seed_throttle.c")
+    if name == "fanout":
+        return _read_sample("seed_fanout.c")
+    if name == "mmap":
         log.warning("mechanism %r not implemented yet; falling back to write_inplace stub", name)
         header = (
             f"/* MECHANISM STUB: {name} — Phase 1 will implement the real {name}. "
