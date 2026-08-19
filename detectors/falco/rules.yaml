@@ -1,0 +1,39 @@
+# Real Falco sensor rules — HYDRA_REAL_FALCO=1 path (ARCHITECTURE.md §8, §9.2).
+#
+# Deliberately broad and container-identity-agnostic: this Colima setup's
+# docker/CRI container-name enrichment never resolves (verified — every
+# container.name comes back null, for every container, old or new), so
+# detectors/falco_real.py correlates events to a specific arena run by
+# PROCESS TREE instead (proc.pid / proc.ppid / proc.apid[1..4], matched
+# against the run's root pid from `docker inspect`). These rules exist only
+# to get real syscall events with buffer content and ancestor pids out of
+# Falco in JSON form; the actual per-run filtering happens host-side.
+#
+# -A (activate high-volume syscalls) and -S 4096 -b (capture + base64 the
+# full write buffer, matching strace's -xx -s 4096) are passed on the CLI,
+# not here — see falco_real.py's sidecar launch command.
+
+- rule: Hydra Sensor Write
+  desc: >
+    A write() completing under /tmp anywhere on the host. Unfiltered, this
+    rule generates tens of thousands of events per second on a busy shared
+    host (every write, everywhere), which appears to starve the docker
+    daemon badly enough that new containers take 10s+ to even get a live pid.
+  condition: >
+    evt.type=write and evt.dir=< and fd.directory=/tmp
+  output: >
+    hydra_write fd=%fd.name pid=%proc.pid ppid=%proc.ppid
+    apid1=%proc.apid[1] apid2=%proc.apid[2] apid3=%proc.apid[3] apid4=%proc.apid[4]
+    data=%evt.buffer
+  priority: WARNING
+  source: syscall
+
+- rule: Hydra Sensor Connect
+  desc: any connect() completing, for the sandbox's no-network safety check.
+  condition: >
+    evt.type=connect and evt.dir=<
+  output: >
+    hydra_connect pid=%proc.pid ppid=%proc.ppid
+    apid1=%proc.apid[1] apid2=%proc.apid[2] apid3=%proc.apid[3] apid4=%proc.apid[4]
+  priority: WARNING
+  source: syscall
